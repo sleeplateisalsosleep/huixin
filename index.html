@@ -1,0 +1,461 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>蕙心网 · 女性生理期健康护理</title>
+<meta name="description" content="蕙心网：面向女性的生理期健康护理平台。核心功能一为情绪健康智能护理流程（情绪识别、情绪趋势预测、健康风险分级与对应干预）；核心功能二为生理知识科普（周期知识、经期护理、营养运动、常见误区、就医指征）。">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<a class="skip-link" href="#main">跳到主要内容</a>
+
+<header class="site-header" id="top">
+  <div class="wrap header-inner">
+    <a class="brand" href="#top">
+      <span class="brand-text">
+        <b>蕙心网</b>
+        <small>女性生理期健康护理平台</small>
+      </span>
+    </a>
+    <nav class="nav" aria-label="主导航">
+      <a href="#feature1">核心功能一 · 情绪护理</a>
+      <a href="#feature2">核心功能二 · 生理科普</a>
+      <a href="#tools">周期工具</a>
+      <a href="#admin" id="adminLink" hidden>后台管理</a>
+      <a class="nav-cta" href="#assessment">开始情绪自评</a>
+    </nav>
+    <div class="auth-area" id="authArea"></div>
+  </div>
+</header>
+
+<main id="main">
+
+  <!-- ================= HERO ================= -->
+  <section class="hero" id="hero">
+    <div class="wrap hero-inner">
+      <div class="hero-copy">
+        <p class="eyebrow">蕙心网 · HUIXIN HEALTH</p>
+        <h1>经期的情绪与身体，<br>都值得被认真看见</h1>
+        <p class="lead">
+          蕙心网把「情绪识别 → 情绪趋势预测 → 健康风险分级 → 分级干预」的完整护理链条做成了可交互的自评，
+          同时提供系统的生理知识科普与周期记录工具。所有内容用于健康教育，不替代医生的诊断与治疗。
+        </p>
+        <div class="hero-actions">
+          <a class="btn btn-primary" href="#assessment">开始 2 分钟情绪自评</a>
+          <a class="btn btn-ghost" href="#feature2">浏览生理知识科普</a>
+        </div>
+        <ul class="hero-stats">
+          <li><b>5</b><span>步情绪自评 · 3 条护理分支</span></li>
+          <li><b>9</b><span>项风险信号筛查</span></li>
+          <li><b>37</b><span>条生理知识 · 9 大分类</span></li>
+        </ul>
+      </div>
+      <figure class="hero-visual">
+        <img src="assets/cover.svg" alt="蕙心网主视觉：情绪与生理周期互相影响的关系示意图" width="720" height="540">
+      </figure>
+    </div>
+  </section>
+
+  <div class="wrap marquee" aria-hidden="true">
+    <span>情绪识别</span><i></i><span>趋势预测</span><i></i><span>健康特征匹配</span><i></i><span>风险评估报告</span><i></i><span>正念冥想</span><i></i><span>心理支持</span>
+  </div>
+
+  <!-- ================= 核心功能一 ================= -->
+  <section class="section" id="feature1">
+    <div class="wrap">
+      <header class="section-head">
+        <p class="eyebrow">核心功能一</p>
+        <h2>情绪健康智能护理流程</h2>
+        <p class="section-sub">
+          系统先做快速<b>情绪识别</b>，再结合健康特征做<b>情绪趋势预测</b>；
+          对持续／重度的情绪困扰生成<b>健康风险评估报告</b>，并按分级给出正念冥想、情绪安抚、心理支持与健康祝福。
+        </p>
+      </header>
+
+      <div class="cards cards-3">
+        <article class="card">
+          <span class="card-icon" aria-hidden="true">1</span>
+          <h3>情绪识别</h3>
+          <p>从文字日记、情绪标签、身体感受三类输入中识别焦虑、低落、烦躁、平静等情绪类型，并判断负面情绪是否过多。</p>
+        </article>
+        <article class="card">
+          <span class="card-icon" aria-hidden="true">2</span>
+          <h3>情绪趋势预测</h3>
+          <p>结合周期阶段、睡眠、疼痛等健康特征匹配，预测情绪是偶发波动，还是持续低落、伤心、焦虑等负面情绪类型。</p>
+        </article>
+        <article class="card">
+          <span class="card-icon" aria-hidden="true">3</span>
+          <h3>健康风险评估</h3>
+          <p>当情绪重度异常时生成健康风险评估报告，明确建议层级：正念冥想、情绪安抚、心理咨询推荐与优惠券等支持资源。</p>
+        </article>
+      </div>
+
+      <!-- ---------- 交互式护理流程 ---------- -->
+      <div class="assess" id="assessment">
+        <div class="assess-head">
+          <div>
+            <h3>互动护理流程 · 情绪自评</h3>
+            <p class="muted">共 5 步，约 2 分钟；答案只保存在你自己的浏览器本地，不会上传服务器。</p>
+          </div>
+          <div class="assess-progress" aria-hidden="true"><span id="progressBar"></span></div>
+        </div>
+
+        <div class="assess-body">
+          <!-- 左：步骤表单 -->
+          <form class="assess-panel" id="assessForm" novalidate>
+            <ol class="steps" id="stepNav">
+              <li data-step="1" class="is-active"><b>1</b><span>输入信息</span></li>
+              <li data-step="2"><b>2</b><span>情绪识别</span></li>
+              <li data-step="3"><b>3</b><span>趋势与健康特征</span></li>
+              <li data-step="4"><b>4</b><span>风险与干预</span></li>
+              <li data-step="5"><b>5</b><span>护理建议</span></li>
+            </ol>
+
+            <!-- step1 -->
+            <fieldset class="step-panel is-active" data-step="1">
+              <legend>用户输入：文字日记 / 情绪标签 / 身体感受</legend>
+              <div class="field">
+                <span class="field-label">文字日记（可选）</span>
+                <textarea id="diary" rows="3" placeholder="例如：这两天小腹坠胀，晚上睡不好，什么都不想做……"></textarea>
+                <div class="diary-row">
+                  <span class="field-hint">写下今天的一句话，系统会从中提取情绪线索关键词。</span>
+                  <button type="button" class="link-btn" id="skipDiary">跳过文字日记 →</button>
+                </div>
+              </div>
+              <div class="field">
+                <span class="field-label">身体感受（可多选）</span>
+                <div class="chips" id="symptomChips" role="group" aria-label="身体感受">
+                  <label class="chip"><input type="checkbox" name="symptom" value="乳房胀痛"><span>乳房胀痛</span></label>
+                  <label class="chip"><input type="checkbox" name="symptom" value="小腹坠痛"><span>小腹坠痛</span></label>
+                  <label class="chip"><input type="checkbox" name="symptom" value="头痛头晕"><span>头痛头晕</span></label>
+                  <label class="chip"><input type="checkbox" name="symptom" value="腰酸背痛"><span>腰酸背痛</span></label>
+                  <label class="chip"><input type="checkbox" name="symptom" value="疲乏无力"><span>疲乏无力</span></label>
+                  <label class="chip"><input type="checkbox" name="symptom" value="失眠或嗜睡"><span>失眠 / 嗜睡</span></label>
+                  <label class="chip"><input type="checkbox" name="symptom" value="食欲改变"><span>食欲改变</span></label>
+                  <label class="chip"><input type="checkbox" name="symptom" value="面部痘痘"><span>面部痘痘</span></label>
+                  <label class="chip"><input type="checkbox" name="symptom" value="无明显不适"><span>无明显不适</span></label>
+                </div>
+              </div>
+            </fieldset>
+
+            <!-- step2 -->
+            <fieldset class="step-panel" data-step="2">
+              <legend>情绪识别：请选择此刻的情绪类型</legend>
+              <p class="field-hint">可多选。系统将判断「负面情绪是否过多」。</p>
+              <div class="chips chips-lg" id="emoChips" role="group" aria-label="情绪类型">
+                <label class="chip chip-emo"><input type="checkbox" name="emotion" value="平静"><span class="emo emo-calm">平静</span></label>
+                <label class="chip chip-emo"><input type="checkbox" name="emotion" value="愉悦"><span class="emo emo-joy">愉悦</span></label>
+                <label class="chip chip-emo"><input type="checkbox" name="emotion" value="焦虑"><span class="emo emo-anx">焦虑</span></label>
+                <label class="chip chip-emo"><input type="checkbox" name="emotion" value="低落"><span class="emo emo-low">低落</span></label>
+                <label class="chip chip-emo"><input type="checkbox" name="emotion" value="烦躁"><span class="emo emo-irr">烦躁</span></label>
+                <label class="chip chip-emo"><input type="checkbox" name="emotion" value="疲惫"><span class="emo emo-tired">疲惫</span></label>
+                <label class="chip chip-emo"><input type="checkbox" name="emotion" value="委屈想哭"><span class="emo emo-cry">委屈想哭</span></label>
+                <label class="chip chip-emo"><input type="checkbox" name="emotion" value="易怒失控"><span class="emo emo-rage">易怒失控</span></label>
+              </div>
+              <label class="field">
+                <span class="field-label">这次情绪持续了多久？</span>
+                <select id="duration">
+                  <option value="hours">几个小时内（今天才出现）</option>
+                  <option value="1-2d">1～2 天</option>
+                  <option value="3-5d">3～5 天</option>
+                  <option value="week">一周及以上</option>
+                  <option value="weeks">两周以上，反复出现</option>
+                </select>
+              </label>
+              <label class="field">
+                <span class="field-label">影响程度 <b id="intensityOut">5</b> / 10</span>
+                <input type="range" id="intensity" min="0" max="10" step="1" value="5">
+                <span class="field-hint">0＝几乎没影响，10＝完全无法工作或生活。</span>
+              </label>
+            </fieldset>
+
+            <!-- step3 -->
+            <fieldset class="step-panel" data-step="3">
+              <legend>预测情绪趋势：健康特征匹配</legend>
+              <div class="grid-2">
+                <label class="field">
+                  <span class="field-label">最近一次月经开始日期</span>
+                  <input type="date" id="lastPeriod">
+                </label>
+                <label class="field">
+                  <span class="field-label">平均周期长度（天）</span>
+                  <input type="number" id="cycleLen" min="18" max="60" value="28">
+                </label>
+                <label class="field">
+                  <span class="field-label">平均经期长度（天）</span>
+                  <input type="number" id="periodLen" min="1" max="12" value="5">
+                </label>
+                <label class="field">
+                  <span class="field-label">近一周平均睡眠时长</span>
+                  <select id="sleep">
+                    <option value="7-9">7～9 小时，睡得还行</option>
+                    <option value="6-7">6～7 小时，略少</option>
+                    <option value="lt6">不足 6 小时</option>
+                    <option value="gt9">超过 9 小时仍困</option>
+                  </select>
+                </label>
+                <label class="field">
+                  <span class="field-label">经期疼痛程度</span>
+                  <select id="pain">
+                    <option value="none">基本不痛</option>
+                    <option value="mild">轻微，不影响做事</option>
+                    <option value="mid">中度，需要热敷或止痛药</option>
+                    <option value="severe">重度，影响上课 / 上班</option>
+                  </select>
+                </label>
+                <label class="field">
+                  <span class="field-label">最近生活压力</span>
+                  <select id="stress">
+                    <option value="low">较小</option>
+                    <option value="mid">一般</option>
+                    <option value="high">较大（考试、加班、人际冲突）</option>
+                  </select>
+                </label>
+              </div>
+              <label class="field">
+                <span class="field-label">其他需要说明的（可选）</span>
+                <input type="text" id="extraNote" placeholder="例如：正在备孕 / 刚停用短效避孕药 / 有多囊卵巢综合征病史">
+              </label>
+            </fieldset>
+
+            <!-- step4 -->
+            <fieldset class="step-panel" data-step="4">
+              <legend>风险与干预：最后确认</legend>
+              <div class="chips" role="group" aria-label="风险筛查">
+                <label class="chip"><input type="checkbox" id="selfHarm"><span>近两周出现过「活着没意思 / 想伤害自己」的念头</span></label>
+                <label class="chip"><input type="checkbox" id="heavyBleed"><span>经血量突然明显增多（1 小时湿透一片卫生巾）或经期超过 10 天</span></label>
+                <label class="chip"><input type="checkbox" id="missedPeriod"><span>月经推迟超过 10 天且有性生活史</span></label>
+                <label class="chip"><input type="checkbox" id="faint"><span>出现晕厥、剧烈腹痛、发热等急性症状</span></label>
+              </div>
+              <p class="notice notice-warn" role="note">
+                <b>重要提示：</b>勾选以上任何一项，蕙心网会优先给出「尽快就医」的提示。蕙心网是健康教育工具，不能替代医生的诊断。
+              </p>
+            </fieldset>
+
+            <!-- step5 结果 -->
+            <fieldset class="step-panel" data-step="5">
+              <legend>护理建议</legend>
+              <div id="reportMount" aria-live="polite"></div>
+            </fieldset>
+
+            <p class="form-error" id="formError" role="alert" hidden></p>
+
+            <div class="assess-actions">
+              <button type="button" class="btn btn-ghost" id="prevBtn" disabled>上一步</button>
+              <button type="button" class="btn btn-primary" id="nextBtn">下一步</button>
+              <button type="button" class="btn btn-soft" id="resetBtn" hidden>重新自评</button>
+            </div>
+          </form>
+
+          <!-- 右：本次护理计划（面向用户的文字说明） -->
+          <aside class="assess-plan">
+            <p class="eyebrow">本次护理计划</p>
+            <h4 id="planTitle">第 1 步 · 先说说你的感受</h4>
+            <p class="plan-lead" id="planLead">写下今天的一句话，并勾选身体感受。这些信息只用来判断当下的情绪状态。</p>
+            <ul class="plan-list" id="planList" aria-label="本次护理计划"></ul>
+            <p class="plan-note">共 5 步，约 2 分钟。答案只保存在你自己的浏览器本地，不会上传服务器。</p>
+          </aside>
+        </div>
+      </div>
+
+      <!-- ---------- 自评记录与趋势曲线 ---------- -->
+      <div class="history" id="history">
+        <div id="historyInner">
+          <div class="history-head">
+            <div>
+              <h3>自评记录与趋势曲线</h3>
+              <p class="muted">每次自评完成后自动保存在本浏览器，最多保留最近 30 次，不上传服务器。</p>
+            </div>
+            <div class="history-actions">
+              <button type="button" class="btn btn-ghost btn-sm" id="syncCloud" hidden>☁ 云端同步</button>
+              <button type="button" class="btn btn-ghost btn-sm" id="clearHistory">清空记录</button>
+            </div>
+          </div>
+          <p class="muted sync-note" id="syncNote"></p>
+          <div class="trend-chart" id="trendChart"></div>
+          <p class="muted history-empty" id="historyEmpty" hidden>还没有自评记录。完成一次情绪自评后，这里会出现痛苦与情绪趋势曲线和历史记录。</p>
+          <ul class="history-list" id="historyList"></ul>
+        </div>
+        <div class="history-lock" id="historyLock" hidden>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="10" width="14" height="10" rx="2" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M8 10V7a4 4 0 0 1 8 0v3" fill="none" stroke="currentColor" stroke-width="1.8"/></svg>
+          <h3>登录后查看自评历史</h3>
+          <p class="muted">未登录也可以完成情绪自评、浏览生理知识科普；登录账号后才能查看历史自评记录与痛苦情绪趋势曲线。</p>
+          <button type="button" class="btn btn-primary" id="lockLogin">登录 / 注册</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= 核心功能二 ================= -->
+  <section class="section" id="feature2">
+    <div class="wrap">
+      <header class="section-head">
+        <p class="eyebrow">核心功能二</p>
+        <h2>生理知识科普</h2>
+        <p class="section-sub">
+          从月经周期四个阶段的激素变化，到经期护理、营养运动、常见误区与就医指征，共 9 个分类。
+          支持关键词搜索与按分类筛选，每条知识都可打开详读。
+        </p>
+      </header>
+
+      <div class="kb-toolbar">
+        <div class="search">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" stroke-width="2"/><path d="M16.5 16.5 21 21" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+          <input type="search" id="kbSearch" placeholder="搜索：痛经、排卵、经期运动、卫生巾更换、PMS……" aria-label="搜索科普知识">
+        </div>
+        <div class="kb-filters" id="kbFilters" role="group" aria-label="知识分类"></div>
+        <div class="kb-actions">
+          <div class="view-toggle" id="kbViewToggle" role="group" aria-label="卡片展示形式">
+            <button type="button" data-view="grid" class="is-on">全部排列</button>
+            <button type="button" data-view="carousel">逐个轮播</button>
+          </div>
+          <button type="button" class="btn btn-ghost btn-sm" id="kbSubmit">＋ 生成知识卡片</button>
+          <button type="button" class="btn btn-primary btn-sm" id="kbReview" hidden>卡片审核 <span class="review-badge" id="kbReviewBadge">0</span></button>
+        </div>
+      </div>
+
+      <p class="kb-count muted" id="kbCount"></p>
+      <div class="kb-grid" id="kbGrid"></div>
+      <div class="kb-carousel" id="kbCarousel" hidden>
+        <button type="button" class="car-arrow" id="carPrev" aria-label="上一张">‹</button>
+        <div class="car-stage" id="carStage"></div>
+        <button type="button" class="car-arrow" id="carNext" aria-label="下一张">›</button>
+        <div class="car-dots" id="carDots"></div>
+        <div class="car-bar">
+          <span class="muted" id="carPos"></span>
+          <button type="button" class="link-btn" id="carPlay">暂停自动播放</button>
+        </div>
+      </div>
+      <p class="kb-empty muted" id="kbEmpty" hidden>没有匹配的知识条目，换个关键词试试。</p>
+    </div>
+  </section>
+
+  <!-- ================= 管理后台 ================= -->
+  <section class="section" id="admin" hidden>
+    <div class="wrap">
+      <header class="section-head">
+        <p class="eyebrow">管理后台</p>
+        <h2>内容管理与数据统计</h2>
+        <p class="section-sub">仅管理员可见：审核用户投稿、管理科普卡片、查看用户列表与点击量统计。</p>
+      </header>
+      <div class="admin-tabs" id="adminTabs" role="tablist">
+        <button type="button" data-tab="review" class="is-on">待审投稿</button>
+        <button type="button" data-tab="cards">卡片管理</button>
+        <button type="button" data-tab="users">用户管理</button>
+        <button type="button" data-tab="stats">数据统计</button>
+      </div>
+      <div id="adminBody"></div>
+    </div>
+  </section>
+
+  <!-- ================= 工具 ================= -->
+  <section class="section section-alt" id="tools">
+    <div class="wrap">
+      <header class="section-head">
+        <p class="eyebrow">实用工具</p>
+        <h2>周期记录与预测</h2>
+        <p class="section-sub">记录每次月经开始日期，自动推算下次经期、排卵期与 PMS 情绪易波动窗口。</p>
+      </header>
+      <div class="tools-grid">
+        <div class="tool-card">
+          <h3>录入记录</h3>
+          <div class="inline-form">
+            <label class="field">
+              <span class="field-label">本次月经开始日期</span>
+              <input type="date" id="toolDate">
+            </label>
+            <label class="field">
+              <span class="field-label">周期长度（天）</span>
+              <input type="number" id="toolCycle" min="18" max="60" value="28">
+            </label>
+            <label class="field">
+              <span class="field-label">经期长度（天）</span>
+              <input type="number" id="toolPeriod" min="1" max="12" value="5">
+            </label>
+            <button type="button" class="btn btn-primary" id="toolAdd">保存并预测</button>
+          </div>
+          <ul class="record-list" id="recordList"></ul>
+          <button type="button" class="link-btn" id="toolClear">清空全部记录</button>
+        </div>
+        <div class="tool-card tool-result" id="toolResult">
+          <h3>预测结果</h3>
+          <p class="muted">还没有记录，先录入一次月经开始日期吧。</p>
+        </div>
+      </div>
+
+      <div class="selfcheck">
+        <h3>经期健康自检清单</h3>
+        <p class="muted">逐项对照，任何一项长期异常都建议到妇科门诊评估。</p>
+        <ul class="checklist" id="checklist"></ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= 免责 ================= -->
+  <section class="section" id="about">
+    <div class="wrap about-grid">
+      <div>
+        <p class="eyebrow">关于蕙心网</p>
+        <h2>让每一次经期，都被温柔对待</h2>
+        <p>
+          蕙心网是一个面向女性经期健康的护理与科普平台。我们把临床常见的经期照护逻辑整理成两个核心功能：
+          <b>核心功能一</b>用交互流程完成情绪识别、趋势预测与风险分级干预；<b>核心功能二</b>用系统化科普回答「为什么会这样、我该怎么做」。
+          所有建议都基于公开的妇科与心理健康科普共识整理，不构成医疗诊断。
+        </p>
+        <ul class="about-points">
+          <li><b>隐私优先</b>：自评与周期记录默认只存在浏览器 localStorage，不上传、不联网。</li>
+          <li><b>分级照护</b>：轻度的情绪波动给自助方法，持续或重度困扰给明确的支持路径。</li>
+          <li><b>可追溯</b>：自评结果会保存在本地，方便观察情绪随周期的变化规律。</li>
+        </ul>
+      </div>
+      <div class="disclaimer">
+        <h3>使用须知与免责声明</h3>
+        <ul>
+          <li>蕙心网提供的是健康教育与自我观察工具，<b>不能替代执业医师的面诊、检查与处方</b>。</li>
+          <li>出现剧烈腹痛、大量出血、晕厥、发热，或自伤念头时，请立即就医或联系当地心理援助热线。</li>
+          <li>中国大陆心理援助热线：<b>12356</b>（全国心理援助热线）；紧急医疗：<b>120</b>。</li>
+          <li>周期预测基于历史记录的平均推算，个体差异很大，不能用于避孕或备孕决策。</li>
+        </ul>
+        <div class="disc-actions">
+          <a class="btn btn-primary" href="#assessment">回到情绪自评</a>
+          <a class="btn btn-ghost" href="#feature2">回到知识科普</a>
+        </div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer class="site-footer">
+  <div class="wrap footer-inner">
+    <div>
+      <b>蕙心网</b>
+      <span>女性生理期健康护理平台 · 核心功能一：情绪健康护理 · 核心功能二：生理知识科普</span>
+    </div>
+    <p class="footer-note">本站内容仅供健康教育参考，不构成医疗建议。如需诊疗请前往正规医疗机构。</p>
+  </div>
+</footer>
+
+<div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+
+<!-- 知识详情 -->
+<div class="modal" id="modal" hidden>
+  <div class="modal-mask" data-close></div>
+  <div class="modal-panel" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+    <button type="button" class="modal-close" data-close aria-label="关闭">×</button>
+    <div id="modalBody"></div>
+  </div>
+</div>
+
+<!-- 登录 / 注册 -->
+<div class="modal modal-sm" id="authModal" hidden>
+  <div class="modal-mask" data-auth-close></div>
+  <div class="modal-panel" role="dialog" aria-modal="true" aria-labelledby="authTitle">
+    <button type="button" class="modal-close" data-auth-close aria-label="关闭">×</button>
+    <div id="authModalBody"></div>
+  </div>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>
