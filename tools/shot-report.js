@@ -4,7 +4,11 @@ const fs = require('fs');
 const path = require('path');
 const { execFileSync } = require('child_process');
 
-const EDGE = 'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe';
+/* Edge 路径按环境变量自动发现，也可用 EDGE_BIN 显式指定，不硬编码盘符 */
+const EDGE = process.env.EDGE_BIN ||
+  [process.env['ProgramFiles(x86)'], process.env.ProgramFiles, process.env.LOCALAPPDATA]
+    .map((d) => d && path.join(d, 'Microsoft', 'Edge', 'Application', 'msedge.exe'))
+    .find((p) => p && fs.existsSync(p)) || 'msedge';
 const root = path.join(__dirname, '..');
 const shotDir = path.join(__dirname, '_shot');
 fs.mkdirSync(shotDir, { recursive: true });

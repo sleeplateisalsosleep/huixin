@@ -129,6 +129,8 @@
 
   /* ---------------------------------------------------------
      0.6 统一服务层：远程后端可用时走 API，否则自动回退本地模式
+     所有 API 地址均使用相对路径（如 'api/cards'），相对于当前
+     页面解析，站点部署到任意端口或目录层级均可正常工作。
      --------------------------------------------------------- */
   const TOKEN_KEY = 'hx_token';
   let svcMode = 'local';           // 'remote' | 'local'
@@ -312,53 +314,53 @@
   /* ---------- 远程服务 ---------- */
   const remoteSvc = {
     mode: 'remote',
-    me: async () => (await api('/api/auth/me')).user,
+    me: async () => (await api('api/auth/me')).user,
     login: async (name, pwd) => {
-      const r = await api('/api/auth/login', {
+      const r = await api('api/auth/login', {
         method: 'POST', body: JSON.stringify({ name: name, password: pwd })
       });
       token = r.token; LS.set(TOKEN_KEY, token); return r.user;
     },
     register: async (name, pwd) => {
-      const r = await api('/api/auth/register', {
+      const r = await api('api/auth/register', {
         method: 'POST', body: JSON.stringify({ name: name, password: pwd })
       });
       token = r.token; LS.set(TOKEN_KEY, token); return r.user;
     },
     logout: async () => {
-      try { await api('/api/auth/logout', { method: 'POST' }); } catch (e) { /* 忽略 */ }
+      try { await api('api/auth/logout', { method: 'POST' }); } catch (e) { /* 忽略 */ }
       token = ''; LS.remove(TOKEN_KEY);
     },
-    cards: async () => (await api('/api/cards')).cards,
-    card: async (id) => api('/api/cards/' + encodeURIComponent(id)),
-    click: async (type, target) => api('/api/clicks', {
+    cards: async () => (await api('api/cards')).cards,
+    card: async (id) => api('api/cards/' + encodeURIComponent(id)),
+    click: async (type, target) => api('api/clicks', {
       method: 'POST', body: JSON.stringify({ type: type, target: target })
     }),
-    submitCard: async (p) => api('/api/cards/submit', {
+    submitCard: async (p) => api('api/cards/submit', {
       method: 'POST', body: JSON.stringify(p)
     }),
-    myCards: async () => (await api('/api/my/cards')).cards,
+    myCards: async () => (await api('api/my/cards')).cards,
     admin: {
-      pending: async () => (await api('/api/admin/cards?status=pending')).cards,
-      allCards: async (status) => (await api('/api/admin/cards' + (status ? '?status=' + status : ''))).cards,
-      approve: async (id) => api('/api/admin/cards/' + id + '/approve', { method: 'POST' }),
-      reject: async (id, reason) => api('/api/admin/cards/' + id + '/reject', {
+      pending: async () => (await api('api/admin/cards?status=pending')).cards,
+      allCards: async (status) => (await api('api/admin/cards' + (status ? '?status=' + status : ''))).cards,
+      approve: async (id) => api('api/admin/cards/' + id + '/approve', { method: 'POST' }),
+      reject: async (id, reason) => api('api/admin/cards/' + id + '/reject', {
         method: 'POST', body: JSON.stringify({ reason: reason || '' })
       }),
-      createCard: async (p) => api('/api/admin/cards', {
+      createCard: async (p) => api('api/admin/cards', {
         method: 'POST', body: JSON.stringify(p)
       }),
-      updateCard: async (id, p) => api('/api/admin/cards/' + id, {
+      updateCard: async (id, p) => api('api/admin/cards/' + id, {
         method: 'PUT', body: JSON.stringify(p)
       }),
-      deleteCard: async (id) => api('/api/admin/cards/' + id, { method: 'DELETE' }),
-      users: async () => (await api('/api/admin/users')).users,
-      stats: async () => api('/api/admin/stats')
+      deleteCard: async (id) => api('api/admin/cards/' + id, { method: 'DELETE' }),
+      users: async () => (await api('api/admin/users')).users,
+      stats: async () => api('api/admin/stats')
     },
-    syncAssess: async (items) => api('/api/assessments/sync', {
+    syncAssess: async (items) => api('api/assessments/sync', {
       method: 'POST', body: JSON.stringify({ items: items })
     }),
-    assessments: async () => (await api('/api/assessments')).assessments
+    assessments: async () => (await api('api/assessments')).assessments
   };
 
   /* 启动探测：远程后端可用则用远程，否则本地回退 */
@@ -367,7 +369,7 @@
     try {
       const ctrl = new AbortController();
       setTimeout(() => ctrl.abort(), 2500);
-      const res = await fetch('/api/health', { signal: ctrl.signal });
+      const res = await fetch('api/health', { signal: ctrl.signal });
       if (res.ok) svcMode = 'remote';
     } catch (e) { svcMode = 'local'; }
     svc = svcMode === 'remote' ? remoteSvc : localSvc;
