@@ -267,7 +267,7 @@ def create_app():
             return err('请输入正确的邮箱地址')
         db = get_db()
         exists = db.execute('SELECT id FROM users WHERE email = ?', (email,)).fetchone() is not None
-        if purpose == 'reset' and not exists:
+        if purpose in ('reset', 'delete') and not exists:
             return err('该邮箱尚未注册')
         # 频率限制：同一邮箱 60 秒内只能发送一次
         recent = db.execute(
@@ -419,6 +419,43 @@ def create_app():
         row = db.execute('SELECT * FROM users WHERE id = ?', (cur.lastrowid,)).fetchone()
         token = create_session(row['id'])
         return jsonify({'token': token, 'user': user_public(row)})
+
+    @app.post('/api/auth/delete-account')
+    def delete_account():
+        """注销账号（需登录）。身份验证二选一：密码 或 邮箱验证码。
+        清理：会话、验证码、自评记录删除；反馈/点击量匿名保留；
+        已发布科普卡转为匿名，未发布投稿一并删除。"""
+        u = require_user()
+        if u['role'] == 'admin':
+            return err('管理员为系统账号，不支持自助注销', 403)
+        p = request.get_json(silent=True) or {}
+        password = str(p.get('password', ''))
+        code = str(p.get('code', '')).strip()
+        db = get_db()
+        if password:
+            if not u['pwd_hash'] or not verify_password(password, u['pwd_hash']):
+                return err('密码不正确', 401)
+        elif code:
+            fail = _consume_code(db, u['email'], code)
+            if fail:
+                return fail
+        else:
+            return err('请输入密码或邮箱验证码以验证身份')
+
+        uid = u['id']
+        email = u['email']
+        db.execute('DELETE FROM sessions WHERE user_id = ?', (uid,))
+        if email:
+            db.execute('DELETE FROM email_codes WHERE email = ?', (email,))
+        db.execute('DELETE FROM assessments WHERE user_id = ?', (uid,))
+        db.execute('UPDATE feedback SET user_id = NULL WHERE user_id = ?', (uid,))
+        db.execute('UPDATE clicks SET user_id = NULL WHERE user_id = ?', (uid,))
+        db.execute("UPDATE cards SET author_id = NULL WHERE author_id = ? AND status = 'approved'",
+                   (uid,))
+        db.execute('DELETE FROM cards WHERE author_id = ?', (uid,))
+        db.execute('DELETE FROM users WHERE id = ?', (uid,))
+        db.commit()
+        return jsonify({'ok': True})
 
     @app.post('/api/auth/logout')
     def logout():

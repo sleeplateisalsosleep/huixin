@@ -238,6 +238,44 @@
 
   function logout() { LS.remove(SESSION_KEY); }
 
+  /* 数据层：注销账号（本地模式）：身份验证后级联清理本地数据 */
+  function localDeleteAccount(identity) {
+    const u = currentUser();
+    if (!u) return { ok: false, msg: '登录状态已失效，请重新登录' };
+    if (u.role === 'admin') return { ok: false, msg: '管理员为系统账号，不支持自助注销' };
+    const pwd = String((identity && identity.password) || '');
+    const code = String((identity && identity.code) || '').trim();
+    if (pwd) {
+      if (!u.pwdHash || u.pwdHash !== hashPwd(pwd, u.salt)) {
+        return { ok: false, msg: '密码不正确' };
+      }
+    } else if (code) {
+      const chk = localConsumeCode(u.email, code);
+      if (!chk.ok) return chk;
+    } else {
+      return { ok: false, msg: '请输入密码或邮箱验证码以验证身份' };
+    }
+    const name = u.name;
+    const email = u.email;
+    // 账号与登录态
+    let users = LS.get(USERS_KEY, []);
+    users = users.filter((x) => x.name !== name);
+    LS.set(USERS_KEY, users);
+    LS.remove(SESSION_KEY);
+    if (email) LS.set(CODES_KEY, LS.get(CODES_KEY, []).filter((c) => c.email !== email));
+    // 个人数据：自评历史与记录
+    LS.remove('hx_history');
+    LS.remove('hx_records');
+    LS.remove('hx_lastsync');
+    // 投稿/自建科普卡：删除
+    LS.set('hx_submissions', LS.get('hx_submissions', []).filter((r) => r.author !== name));
+    LS.set('hx_cards_extra', LS.get('hx_cards_extra', []).filter((r) => r.author !== name));
+    // 反馈：匿名保留
+    LS.set('hx_feedback', LS.get('hx_feedback', []).map((r) =>
+      r.user === name ? Object.assign({}, r, { user: '未登录用户' }) : r));
+    return { ok: true };
+  }
+
   /* 数据层：管理员角色校验（审核操作统一入口校验） */
   function requireAdmin() {
     const u = currentUser();
@@ -322,6 +360,11 @@
       const r = localResetPassword(email, code, pwd);
       if (!r.ok) throw new Error(r.msg);
       return currentUser();
+    },
+    async deleteAccount(identity) {
+      const r = localDeleteAccount(identity);
+      if (!r.ok) throw new Error(r.msg);
+      return { ok: true };
     },
     async logout() { logout(); },
 
@@ -517,6 +560,14 @@
       });
       token = r.token; LS.set(TOKEN_KEY, token); return r.user;
     },
+    deleteAccount: async (identity) => {
+      await api('api/auth/delete-account', {
+        method: 'POST',
+        body: JSON.stringify({ password: identity.password || '', code: identity.code || '' })
+      });
+      token = ''; LS.remove(TOKEN_KEY);
+      return { ok: true };
+    },
     logout: async () => {
       try { await api('api/auth/logout', { method: 'POST' }); } catch (e) { /* 忽略 */ }
       token = ''; LS.remove(TOKEN_KEY);
@@ -599,11 +650,13 @@
     const u = me;
     if (u) {
       box.innerHTML =
-        '<span class="auth-name">你好，' + esc(u.name) + '</span>' +
+        '<button type="button" class="auth-name" id="ucOpenBtn" title="打开用户中心">你好，' +
+        esc(u.name) + '</button>' +
         '<span class="role-badge' + (u.role === 'admin' ? ' admin' : '') + '">' +
         (u.role === 'admin' ? '管理员' : '用户') + '</span>' +
         '<button type="button" class="auth-btn" id="logoutBtn">退出</button>';
       $('#logoutBtn').addEventListener('click', doLogout);
+      $('#ucOpenBtn').addEventListener('click', openUserCenter);
     } else {
       box.innerHTML =
         '<button type="button" class="auth-btn" id="navLogin">登录</button>' +
@@ -829,6 +882,186 @@
     await applyRoleUI();
     await refreshHistoryView();
     toast('已退出登录' + (u ? '（' + u.name + '）' : ''));
+  }
+
+  /* ================= 用户中心 ================= */
+  let ucTimer = null;
+  let ucVerifyBy = 'password';   // 'password' | 'code'
+
+  function openUserCenter() {
+    if (!me) return;
+    renderUserModal();
+    $('#userModal').hidden = false;
+    document.body.style.overflow = 'hidden';
+  }
+
+  function closeUserCenter() {
+    $('#userModal').hidden = true;
+    document.body.style.overflow = '';
+    if (ucTimer) { clearInterval(ucTimer); ucTimer = null; }
+  }
+
+  $$('#userModal [data-uc-close]').forEach((el) =>
+    el.addEventListener('click', closeUserCenter));
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && !$('#userModal').hidden) closeUserCenter();
+  });
+
+  function fmtDate(s) {
+    if (!s) return '';
+    const d = new Date(s);
+    return isNaN(d.getTime()) ? '' : d.toLocaleDateString('zh-CN');
+  }
+
+  function renderUserModal() {
+    const body = $('#userModalBody');
+    const u = me;
+    if (!u) { closeUserCenter(); return; }
+    const isAdmin = u.role === 'admin';
+    const email = u.email || '未绑定邮箱';
+    const joined = fmtDate(u.created_at || u.createdAt);
+    const avatarChar = (u.name || '?').trim().charAt(0).toUpperCase();
+
+    body.innerHTML =
+      '<h2 id="ucTitle" style="margin-bottom:16px">账号设置</h2>' +
+      '<div class="uc-head">' +
+        '<div class="uc-avatar">' + esc(avatarChar) + '</div>' +
+        '<div class="uc-info">' +
+          '<div class="uc-name">' + esc(u.name) +
+            '<span class="role-badge' + (isAdmin ? ' admin' : '') + '">' +
+            (isAdmin ? '管理员' : '用户') + '</span></div>' +
+          '<div class="uc-email" title="' + esc(email) + '">' + esc(email) + '</div>' +
+          (joined ? '<div class="uc-email">注册于 ' + joined + '</div>' : '') +
+        '</div>' +
+      '</div>' +
+      '<div class="uc-actions">' +
+        '<button type="button" class="btn btn-ghost" id="ucLogoutBtn">退出登录</button>' +
+      '</div>' +
+      '<div class="uc-danger">' +
+        '<h3>注销账号</h3>' +
+        (isAdmin
+          ? '<p>管理员为系统账号，不支持自助注销。如需停用普通用户账号或调整后台权限，请在数据库中处理。</p>'
+          : '<p>注销后将<b>永久删除</b>你的账号、登录凭证、自评历史与投稿记录，且无法恢复；' +
+            '你提交的护理建议反馈会以匿名形式保留。请谨慎操作。</p>' +
+            '<button type="button" class="btn btn-danger btn-sm" id="ucDeleteToggle">注销账号</button>' +
+            '<div id="ucDeletePanel" hidden></div>') +
+      '</div>';
+
+    $('#ucLogoutBtn', body).addEventListener('click', async () => {
+      closeUserCenter();
+      await doLogout();
+    });
+
+    const toggle = $('#ucDeleteToggle', body);
+    if (toggle) toggle.addEventListener('click', () => {
+      toggle.hidden = true;
+      renderDeletePanel($('#ucDeletePanel', body));
+      $('#ucDeletePanel', body).hidden = false;
+    });
+  }
+
+  function renderDeletePanel(panel) {
+    ucVerifyBy = 'password';
+    panel.innerHTML =
+      '<form class="uc-form" id="ucDeleteForm" novalidate>' +
+        '<div class="uc-switch">' +
+          '<button type="button" data-by="password" class="is-on">密码验证</button>' +
+          '<button type="button" data-by="code">邮箱验证码</button>' +
+        '</div>' +
+        '<div id="ucByPwd">' +
+          '<label>登录密码<input type="password" id="ucDelPwd" autocomplete="current-password" placeholder="请输入登录密码"></label>' +
+        '</div>' +
+        '<div id="ucByCode" hidden>' +
+          '<label>邮箱（' + esc(me.email || '') + '）' +
+            '<div style="display:flex;gap:8px">' +
+              '<input type="text" id="ucDelCode" inputmode="numeric" maxlength="6" placeholder="6 位验证码" style="flex:1">' +
+              '<button type="button" class="btn btn-sm" id="ucSendCodeBtn" style="white-space:nowrap">获取验证码</button>' +
+            '</div>' +
+          '</label>' +
+        '</div>' +
+        '<label style="display:flex;gap:8px;align-items:flex-start;font-weight:400">' +
+          '<input type="checkbox" id="ucDelAgree" style="margin-top:3px">' +
+          '<span>我已知晓该操作不可恢复，确认注销此账号</span></label>' +
+        '<p class="auth-error" id="ucDelError"></p>' +
+        '<button type="submit" class="btn btn-danger" id="ucDelSubmit">确认永久注销</button>' +
+        '<button type="button" class="btn btn-ghost" id="ucDelCancel">取消</button>' +
+      '</form>';
+
+    const byPwd = $('#ucByPwd', panel);
+    const byCode = $('#ucByCode', panel);
+    $$('.uc-switch button', panel).forEach((b) => b.addEventListener('click', () => {
+      ucVerifyBy = b.getAttribute('data-by');
+      $$('.uc-switch button', panel).forEach((x) =>
+        x.classList.toggle('is-on', x === b));
+      byPwd.hidden = ucVerifyBy !== 'password';
+      byCode.hidden = ucVerifyBy !== 'code';
+      $('#ucDelError', panel).textContent = '';
+    }));
+
+    const sendBtn = $('#ucSendCodeBtn', panel);
+    sendBtn.addEventListener('click', async () => {
+      const err = $('#ucDelError', panel);
+      err.textContent = '';
+      sendBtn.disabled = true;
+      try {
+        const r = await svc.sendCode(me.email, 'delete');
+        let left = 60;
+        sendBtn.textContent = left + 's';
+        if (ucTimer) clearInterval(ucTimer);
+        ucTimer = setInterval(() => {
+          left--;
+          if (left <= 0) {
+            clearInterval(ucTimer); ucTimer = null;
+            sendBtn.disabled = false; sendBtn.textContent = '获取验证码';
+          } else { sendBtn.textContent = left + 's'; }
+        }, 1000);
+        if (r && r.code) toast('验证码：' + r.code + '（演示模式，已直接显示）');
+        else if (r && r.sent === false) toast('验证码已生成，请查看服务端控制台');
+        else toast('验证码已发送至 ' + me.email);
+      } catch (ex) {
+        err.textContent = ex.message;
+        sendBtn.disabled = false;
+      }
+    });
+
+    $('#ucDelCancel', panel).addEventListener('click', () => {
+      if (ucTimer) { clearInterval(ucTimer); ucTimer = null; }
+      renderUserModal();
+    });
+
+    $('#ucDeleteForm', panel).addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const err = $('#ucDelError', panel);
+      const submitBtn = $('#ucDelSubmit', panel);
+      err.textContent = '';
+      if (!$('#ucDelAgree', panel).checked) {
+        err.textContent = '请先勾选确认声明';
+        return;
+      }
+      const identity = {};
+      if (ucVerifyBy === 'password') {
+        identity.password = $('#ucDelPwd', panel).value;
+        if (!identity.password) { err.textContent = '请输入登录密码'; return; }
+      } else {
+        identity.code = $('#ucDelCode', panel).value.trim();
+        if (!/^\d{6}$/.test(identity.code)) { err.textContent = '请输入 6 位数字验证码'; return; }
+      }
+      if (!window.confirm('注销后账号、自评历史与投稿将被永久删除，此操作不可恢复。\n确认注销账号「' + me.name + '」吗？')) {
+        return;
+      }
+      submitBtn.disabled = true;
+      try {
+        await svc.deleteAccount(identity);
+        closeUserCenter();
+        me = null;
+        await applyRoleUI();
+        await refreshHistoryView();
+        toast('账号已注销，感谢你曾使用蕙心网');
+      } catch (ex) {
+        err.textContent = ex.message;
+        submitBtn.disabled = false;
+      }
+    });
   }
 
   /* 根据登录角色刷新所有权限相关 UI */
