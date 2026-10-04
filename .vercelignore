@@ -1,0 +1,18 @@
+# 数据目录含 SQLite 库与 SMTP 授权码，绝不打包进函数
+data/
+__pycache__/
+**/__pycache__/
+.git/
+.trae/
+tools/
+docs/
+.venv/
+venv/
+
+# 纯前端文件由 GitHub Pages 托管，函数包不需要
+index.html
+styles.css
+app.js
+huixin-web-standalone.html
+assets/
+*.md

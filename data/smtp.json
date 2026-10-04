@@ -1,9 +1,0 @@
-{
-  "host": "smtp.163.com",
-  "port": 465,
-  "tls": "1",
-  "user": "kuichuang2026@163.com",
-  "pass": "NRgMezTs6xTzgaea",
-  "from": "kuichuang2026@163.com",
-  "admin_email": "kuichuang2026@163.com"
-}

@@ -1,0 +1,15 @@
+# 敏感数据：SMTP 授权码、本地数据库
+data/
+
+# Python
+__pycache__/
+**/__pycache__/
+*.pyc
+.venv/
+venv/
+
+# 部署工具
+.vercel/
+
+# 编辑器
+.trae/

@@ -83,12 +83,94 @@ def now_iso():
     return datetime.now().isoformat(timespec='seconds')
 
 
+# ---------------- 双模式连接：本地 sqlite3 / Serverless 远程 libSQL ----------------
+# 配置了 TURSO_DATABASE_URL（Vercel 等 Serverless 环境）时走 Turso/libSQL 远程库，
+# 不依赖本地文件；未配置时（本地 python server.py）继续使用 data/huixin.db。
+TURSO_URL = os.environ.get('TURSO_DATABASE_URL') or os.environ.get('LIBSQL_URL') or ''
+TURSO_TOKEN = os.environ.get('TURSO_AUTH_TOKEN') or os.environ.get('LIBSQL_AUTH_TOKEN') or ''
+
+
+class NameRow(tuple):
+    """libsql 驱动返回普通 tuple，这里补上 sqlite3.Row 的按列名取值能力。"""
+
+    def __new__(cls, cols, values):
+        obj = super().__new__(cls, values)
+        object.__setattr__(obj, '_cols', tuple(cols))
+        return obj
+
+    def __getitem__(self, key):
+        if isinstance(key, str):
+            return tuple.__getitem__(self, self._cols.index(key))
+        return tuple.__getitem__(self, key)
+
+    def keys(self):
+        return list(self._cols)
+
+
+class LibsqlCursor:
+    def __init__(self, cur):
+        self._cur = cur
+
+    def execute(self, sql, params=()):
+        self._cur = self._cur.execute(sql, tuple(params) if params else ())
+        return self
+
+    def _columns(self):
+        return [d[0] for d in (self._cur.description or ())]
+
+    def fetchone(self):
+        row = self._cur.fetchone()
+        return None if row is None else NameRow(self._columns(), row)
+
+    def fetchall(self):
+        cols = self._columns()
+        return [NameRow(cols, r) for r in self._cur.fetchall()]
+
+    @property
+    def lastrowid(self):
+        return self._cur.lastrowid
+
+    @property
+    def rowcount(self):
+        return self._cur.rowcount
+
+
+class LibsqlConn:
+    """仅包装业务实际用到的连接接口（execute/executescript/commit/close）。"""
+
+    def __init__(self, raw):
+        self._raw = raw
+
+    def execute(self, sql, params=()):
+        return LibsqlCursor(self._raw.execute(sql, tuple(params) if params else ()))
+
+    def executescript(self, sql):
+        self._raw.executescript(sql)
+        return self
+
+    def commit(self):
+        self._raw.commit()
+
+    def rollback(self):
+        self._raw.rollback()
+
+    def close(self):
+        self._raw.close()
+
+
+def connect_db():
+    if TURSO_URL:
+        import libsql
+        return LibsqlConn(libsql.connect(database=TURSO_URL, auth_token=TURSO_TOKEN))
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    conn.execute('PRAGMA foreign_keys = ON')
+    return conn
+
+
 def get_db():
     if 'db' not in g:
-        conn = sqlite3.connect(DB_PATH)
-        conn.row_factory = sqlite3.Row
-        conn.execute('PRAGMA foreign_keys = ON')
-        g.db = conn
+        g.db = connect_db()
     return g.db
 
 
@@ -100,9 +182,9 @@ def close_db(_exc=None):
 
 def init_db(admin_hash, admin_email='admin@huixin.local'):
     """建表、迁移旧表、播种管理员与内置科普卡。返回 (新建管理员?, 新建卡片数)。"""
-    os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
+    if not TURSO_URL:
+        os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
+    conn = connect_db()
     conn.executescript(SCHEMA)
 
     # 迁移：旧版 users 表没有 email 列、pwd_hash 为 NOT NULL

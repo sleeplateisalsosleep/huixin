@@ -14,7 +14,8 @@ import ssl
 from datetime import datetime, timedelta
 from email.mime.text import MIMEText
 
-from flask import Flask, abort, jsonify, request, send_from_directory
+from flask import (Flask, Response, abort, jsonify, request,
+                   send_from_directory)
 
 from . import db as dbmod
 from .db import (ROOT, card_public, close_db, get_db, init_db, now_iso,
@@ -30,6 +31,51 @@ CODE_RESEND_SECONDS = 60
 def create_app():
     app = Flask(__name__)
     app.teardown_appcontext(close_db)
+
+    # ---------------- CORS：允许 GitHub Pages 等静态站点跨域调用 ----------------
+    # 可用 HX_ALLOWED_ORIGINS=http://a,https://b 追加可信来源；
+    # localhost / 127.0.0.1 任意端口自动放行，方便本地开发。
+    allowed_origins = {
+        o.strip() for o in os.environ.get('HX_ALLOWED_ORIGINS', '').split(',')
+        if o.strip()
+    }
+    allowed_origins.add('https://sleeplateisalsosleep.github.io')
+    CORS_HEADERS = 'Content-Type, X-Auth-Token, Authorization'
+    CORS_METHODS = 'GET, POST, PUT, DELETE, OPTIONS'
+
+    def cors_origin():
+        origin = request.headers.get('Origin', '')
+        if not origin:
+            return ''
+        if origin in allowed_origins:
+            return origin
+        host = origin.rsplit('://', 1)[-1].split('/')[0]
+        if host in ('localhost', '127.0.0.1') or \
+                host.startswith(('localhost:', '127.0.0.1:')):
+            return origin
+        return ''
+
+    @app.before_request
+    def cors_preflight():
+        # 带 X-Auth-Token / JSON 的请求会先发 OPTIONS 预检
+        if request.method == 'OPTIONS' and cors_origin():
+            return Response(status=204, headers={
+                'Access-Control-Allow-Origin': cors_origin(),
+                'Access-Control-Allow-Headers': CORS_HEADERS,
+                'Access-Control-Allow-Methods': CORS_METHODS,
+                'Access-Control-Max-Age': '86400',
+                'Vary': 'Origin',
+            })
+
+    @app.after_request
+    def cors_headers(resp):
+        origin = cors_origin()
+        if origin:
+            resp.headers['Access-Control-Allow-Origin'] = origin
+            resp.headers['Vary'] = 'Origin'
+            resp.headers['Access-Control-Allow-Headers'] = CORS_HEADERS
+            resp.headers['Access-Control-Allow-Methods'] = CORS_METHODS
+        return resp
 
     # ---------------- 配置加载：环境变量优先，data/smtp.json 兜底 ----------------
     cfg_path = os.path.join(dbmod.ROOT, 'data', 'smtp.json')

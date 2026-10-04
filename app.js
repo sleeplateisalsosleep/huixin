@@ -197,10 +197,28 @@
 
   /* ---------------------------------------------------------
      0.6 统一服务层：远程后端可用时走 API，否则自动回退本地模式
-     所有 API 地址均使用相对路径（如 'api/cards'），相对于当前
-     页面解析，站点部署到任意端口或目录层级均可正常工作。
+     本地（Flask 同源 / Live Server 代理）使用相对路径（如 'api/cards'）；
+     部署在 GitHub Pages 等静态托管时通过上方 REMOTE_API_BASE 走公网 HTTPS 后端。
      --------------------------------------------------------- */
   const TOKEN_KEY = 'hx_token';
+  /* 公网后端地址（HTTPS）：部署在 GitHub Pages 等静态托管时必需。
+     在 Vercel 部署后端后，把下面替换成你的函数地址，例如 https://huixin-api.vercel.app；
+     本地由 Flask 同源托管或 Live Server 代理时保持空串，继续走相对路径。
+     也可用 window.HX_API_BASE 在页面里运行时覆盖。 */
+  const REMOTE_API_BASE = 'https://REPLACE-WITH-YOUR-VERCEL-APP.vercel.app';
+  const API_BASE = (function () {
+    const override = String(window.HX_API_BASE || '').replace(/\/+$/, '');
+    if (override) return override;
+    const host = location.hostname;
+    if (host === 'localhost' || host === '127.0.0.1' || host === '') return '';
+    if (REMOTE_API_BASE.indexOf('REPLACE-WITH') !== -1) return ''; // 未配置则保持本地模式
+    return REMOTE_API_BASE.replace(/\/+$/, '');
+  })();
+  function apiUrl(p) {
+    p = String(p).replace(/^\/+/, '');
+    return API_BASE ? API_BASE + '/' + p : p;
+  }
+
   let svcMode = 'local';           // 'remote' | 'local'
   let svc = null;
   let me = null;
@@ -210,7 +228,7 @@
     opts = opts || {};
     const headers = Object.assign({ 'Content-Type': 'application/json' }, opts.headers || {});
     if (token) headers['X-Auth-Token'] = token;
-    const res = await fetch(path, Object.assign({}, opts, { headers: headers }));
+    const res = await fetch(apiUrl(path), Object.assign({}, opts, { headers: headers }));
     let data = null;
     try { data = await res.json(); } catch (e) { /* 非 JSON */ }
     if (!res.ok) {
@@ -474,7 +492,7 @@
     try {
       const ctrl = new AbortController();
       setTimeout(() => ctrl.abort(), 2500);
-      const res = await fetch('api/health', { signal: ctrl.signal });
+      const res = await fetch(apiUrl('api/health'), { signal: ctrl.signal });
       if (res.ok) svcMode = 'remote';
     } catch (e) { svcMode = 'local'; }
     svc = svcMode === 'remote' ? remoteSvc : localSvc;
