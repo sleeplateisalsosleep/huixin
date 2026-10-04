@@ -1,6 +1,6 @@
 """蕙心网后端 · Flask 应用工厂
 功能：
-- 用户账户（注册 / 登录 / 会话令牌 / 管理员）
+- 用户账户（邮箱验证码注册/登录 · 管理员密码兜底 · 会话令牌）
 - 核心功能二科普卡内容管理与投稿审核
 - 点击量数据统计
 - 自评数据云端同步
@@ -9,27 +9,87 @@
 """
 import json
 import os
+import smtplib
+import ssl
+from datetime import datetime, timedelta
+from email.mime.text import MIMEText
 
 from flask import Flask, abort, jsonify, request, send_from_directory
 
 from . import db as dbmod
 from .db import (ROOT, card_public, close_db, get_db, init_db, now_iso,
                  user_public)
-from .security import (create_session, destroy_session, hash_password,
-                       session_user, valid_name, verify_password)
+from .security import (create_session, destroy_session, gen_code, hash_password,
+                       session_user, valid_email, valid_name, verify_password)
 
 ADMIN_DEFAULT_PWD = 'Huixin@2026'
+CODE_TTL_MINUTES = 5
+CODE_RESEND_SECONDS = 60
 
 
 def create_app():
     app = Flask(__name__)
     app.teardown_appcontext(close_db)
 
-    admin_created, cards_added = init_db(hash_password(ADMIN_DEFAULT_PWD))
+    # ---------------- 配置加载：环境变量优先，data/smtp.json 兜底 ----------------
+    cfg_path = os.path.join(dbmod.ROOT, 'data', 'smtp.json')
+    file_cfg = {}
+    if os.path.isfile(cfg_path):
+        try:
+            with open(cfg_path, encoding='utf-8') as f:
+                file_cfg = json.load(f) or {}
+        except (OSError, json.JSONDecodeError):
+            file_cfg = {}
+
+    def cfg(key, env, default=''):
+        return os.environ.get(env) or str(file_cfg.get(key, '') or default)
+
+    admin_email = cfg('admin_email', 'HX_ADMIN_EMAIL', 'admin@huixin.local')
+    admin_created, cards_added = init_db(hash_password(ADMIN_DEFAULT_PWD), admin_email)
     if admin_created:
-        print('[蕙心网] 已生成管理员账号  admin / %s' % ADMIN_DEFAULT_PWD)
+        print('[蕙心网] 已生成管理员账号  admin / %s  邮箱 %s' % (ADMIN_DEFAULT_PWD, admin_email))
     if cards_added:
         print('[蕙心网] 已导入内置科普卡片 %d 条' % cards_added)
+
+    # ---------------- 邮件发送（SMTP 未配置时打印到控制台） ----------------
+    SMTP_HOST = cfg('host', 'HX_SMTP_HOST')
+    SMTP_PORT = int(cfg('port', 'HX_SMTP_PORT', '465'))
+    SMTP_USER = cfg('user', 'HX_SMTP_USER')
+    SMTP_PASS = cfg('pass', 'HX_SMTP_PASS')
+    SMTP_FROM = cfg('from', 'HX_SMTP_FROM') or SMTP_USER
+    SMTP_TLS = cfg('tls', 'HX_SMTP_TLS', '1') == '1'
+    SMTP_READY = bool(SMTP_HOST and SMTP_USER and SMTP_PASS)
+
+    if not SMTP_READY:
+        print('[蕙心网] 未配置 SMTP（data/smtp.json 或 HX_SMTP_HOST/USER/PASS），验证码将打印到服务端控制台')
+    else:
+        print('[蕙心网] SMTP 已配置：%s via %s:%d' % (SMTP_USER, SMTP_HOST, SMTP_PORT))
+
+    def send_mail(to_addr, subject, body):
+        """发送邮件；SMTP 未配置时返回 False 并打印到控制台。"""
+        if not SMTP_READY:
+            print('[蕙心网][邮件-控制台] → %s\n  主题: %s\n  内容: %s' % (to_addr, subject, body))
+            return False
+        try:
+            msg = MIMEText(body, 'plain', 'utf-8')
+            msg['Subject'] = subject
+            msg['From'] = SMTP_FROM
+            msg['To'] = to_addr
+            if SMTP_PORT == 465:
+                ctx = ssl.create_default_context()
+                with smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT, context=ctx) as s:
+                    s.login(SMTP_USER, SMTP_PASS)
+                    s.sendmail(SMTP_FROM, [to_addr], msg.as_string())
+            else:
+                with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as s:
+                    if SMTP_TLS:
+                        s.starttls(context=ssl.create_default_context())
+                    s.login(SMTP_USER, SMTP_PASS)
+                    s.sendmail(SMTP_FROM, [to_addr], msg.as_string())
+            return True
+        except Exception as e:
+            print('[蕙心网][邮件发送失败] %s: %s' % (to_addr, e))
+            return False
 
     # ---------------- 基础工具 ----------------
     def err(msg, code=400):
@@ -142,9 +202,98 @@ def create_app():
     def health():
         return jsonify({'ok': True, 'name': '蕙心网', 'service': 'huixin-server'})
 
-    # ================= 账户 =================
+    # ================= 账户：邮箱验证码 =================
+    @app.post('/api/auth/send-code')
+    def send_code():
+        """向邮箱发送 6 位验证码（5 分钟有效，60 秒内不可重复发送）。"""
+        p = request.get_json(silent=True) or {}
+        email = str(p.get('email', '')).strip().lower()
+        if not valid_email(email):
+            return err('请输入正确的邮箱地址')
+        db = get_db()
+        # 频率限制：同一邮箱 60 秒内只能发送一次
+        recent = db.execute(
+            "SELECT created_at FROM email_codes WHERE email = ? ORDER BY id DESC LIMIT 1",
+            (email,)).fetchone()
+        if recent:
+            try:
+                sent_at = datetime.fromisoformat(recent['created_at'])
+                if (datetime.now() - sent_at).total_seconds() < CODE_RESEND_SECONDS:
+                    wait = CODE_RESEND_SECONDS - int((datetime.now() - sent_at).total_seconds())
+                    return err('请 %d 秒后再获取验证码' % max(wait, 1))
+            except ValueError:
+                pass
+        code = gen_code(6)
+        now = datetime.now()
+        expires = (now + timedelta(minutes=CODE_TTL_MINUTES)).isoformat(timespec='seconds')
+        db.execute(
+            "INSERT INTO email_codes (email, code, created_at, expires_at) VALUES (?,?,?,?)",
+            (email, code, now.isoformat(timespec='seconds'), expires))
+        db.commit()
+        subject = '蕙心网验证码'
+        body = ('【蕙心网】您的验证码为 %s，%d 分钟内有效。\n'
+                '如非本人操作，请忽略本邮件。' % (code, CODE_TTL_MINUTES))
+        send_mail(email, subject, body)
+        return jsonify({'ok': True, 'ttl': CODE_TTL_MINUTES * 60, 'sent': SMTP_READY})
+
+    @app.post('/api/auth/verify')
+    def verify_code():
+        """邮箱 + 验证码登录/注册（邮箱不存在则自动注册）。"""
+        p = request.get_json(silent=True) or {}
+        email = str(p.get('email', '')).strip().lower()
+        code = str(p.get('code', '')).strip()
+        if not valid_email(email):
+            return err('请输入正确的邮箱地址')
+        if not code.isdigit() or len(code) != 6:
+            return err('请输入 6 位数字验证码')
+        db = get_db()
+        row = db.execute(
+            "SELECT * FROM email_codes WHERE email = ? AND used = 0 ORDER BY id DESC LIMIT 1",
+            (email,)).fetchone()
+        if row is None:
+            return err('请先获取验证码', 401)
+        try:
+            expires = datetime.fromisoformat(row['expires_at'])
+        except ValueError:
+            return err('验证码已失效', 401)
+        if datetime.now() > expires:
+            return err('验证码已过期，请重新获取', 401)
+        if code != row['code']:
+            return err('验证码不正确', 401)
+        db.execute("UPDATE email_codes SET used = 1 WHERE id = ?", (row['id'],))
+        # 查找或创建用户
+        user = db.execute("SELECT * FROM users WHERE email = ?", (email,)).fetchone()
+        if user is None:
+            # 用邮箱本地部分作为显示名（冲突则追加序号）
+            local = email.split('@')[0]
+            name = local
+            i = 1
+            while db.execute('SELECT id FROM users WHERE name = ?', (name,)).fetchone():
+                i += 1
+                name = '%s%d' % (local, i)
+            cur = db.execute(
+                'INSERT INTO users (name, email, pwd_hash, role, created_at) VALUES (?,?,?,?,?)',
+                (name, email, None, 'user', now_iso()))
+            user = db.execute('SELECT * FROM users WHERE id = ?', (cur.lastrowid,)).fetchone()
+        db.commit()
+        token = create_session(user['id'])
+        return jsonify({'token': token, 'user': user_public(user)})
+
+    @app.post('/api/auth/login')
+    def login():
+        """管理员密码登录（保留作为后台兜底入口）。"""
+        p = request.get_json(silent=True) or {}
+        name = str(p.get('name', '')).strip()
+        pwd = str(p.get('password', ''))
+        row = get_db().execute('SELECT * FROM users WHERE name = ?', (name,)).fetchone()
+        if row is None or not row['pwd_hash'] or not verify_password(pwd, row['pwd_hash']):
+            return err('用户名或密码不正确', 401)
+        token = create_session(row['id'])
+        return jsonify({'token': token, 'user': user_public(row)})
+
     @app.post('/api/auth/register')
     def register():
+        """兼容旧版用户名+密码注册（仍可用，但推荐邮箱验证码）。"""
         p = request.get_json(silent=True) or {}
         name = str(p.get('name', '')).strip()
         pwd = str(p.get('password', ''))
@@ -160,17 +309,6 @@ def create_app():
             (name, hash_password(pwd), 'user', now_iso()))
         db.commit()
         row = db.execute('SELECT * FROM users WHERE id = ?', (cur.lastrowid,)).fetchone()
-        token = create_session(row['id'])
-        return jsonify({'token': token, 'user': user_public(row)})
-
-    @app.post('/api/auth/login')
-    def login():
-        p = request.get_json(silent=True) or {}
-        name = str(p.get('name', '')).strip()
-        pwd = str(p.get('password', ''))
-        row = get_db().execute('SELECT * FROM users WHERE name = ?', (name,)).fetchone()
-        if row is None or not verify_password(pwd, row['pwd_hash']):
-            return err('用户名或密码不正确', 401)
         token = create_session(row['id'])
         return jsonify({'token': token, 'user': user_public(row)})
 
@@ -510,6 +648,12 @@ def create_app():
 
     @app.get('/<path:fname>')
     def static_any(fname):
+        # 私有目录与敏感后缀一律不允许通过 HTTP 访问（数据库、SMTP 授权码、源码等）
+        first = fname.split('/', 1)[0].lower()
+        if first in ('data', 'backend', 'tools', '__pycache__', '.git', '.trae'):
+            abort(404)
+        if fname.lower().endswith(('.py', '.pyc', '.json', '.db', '.log')):
+            abort(404)
         # 仅允许项目根目录内真实存在的文件（send_from_directory 自动防目录穿越）
         full = os.path.join(ROOT, fname.replace('/', os.sep))
         if os.path.isfile(full):

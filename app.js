@@ -42,14 +42,18 @@
   };
 
   /* ---------------------------------------------------------
-     0.5 账号体系（注册 / 登录 / 会话 / 角色）
-     本平台为纯静态站点，账号信息保存在浏览器本地，属于本地
-     演示级认证；历史查看、卡片审核等操作在数据层做角色校验。
+     0.5 账号体系（邮箱验证码登录 / 管理员密码兜底 / 会话 / 角色）
+     普通用户使用邮箱 + 6 位验证码登录，邮箱未注册则自动创建账号；
+     管理员保留用户名 + 密码登录作为后台兜底入口。
+     远程后端可用时走 API，否则本地模式（验证码直接展示）。
      --------------------------------------------------------- */
   const USERS_KEY = 'hx_users';
   const SESSION_KEY = 'hx_session';
+  const CODES_KEY = 'hx_email_codes';
   const ADMIN_NAME = 'admin';
   const ADMIN_PWD = 'Huixin@2026';
+  const ADMIN_EMAIL = 'admin@huixin.local';
+  const EMAIL_RE = /^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/;
 
   function makeSalt() {
     return Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
@@ -66,16 +70,29 @@
     return h.toString(16);
   }
 
+  function genCode() {
+    let c = '';
+    for (let i = 0; i < 6; i++) c += String(Math.floor(Math.random() * 10));
+    return c;
+  }
+
   /* 首次使用时生成管理员账号 */
   function initUsers() {
     let users = LS.get(USERS_KEY, null);
     if (!Array.isArray(users)) {
       const salt = makeSalt();
       users = [{
-        name: ADMIN_NAME, role: 'admin', salt: salt,
+        name: ADMIN_NAME, email: ADMIN_EMAIL, role: 'admin', salt: salt,
         pwdHash: hashPwd(ADMIN_PWD, salt), createdAt: new Date().toISOString()
       }];
       LS.set(USERS_KEY, users);
+    } else {
+      // 给旧版管理员补 email
+      let changed = false;
+      users.forEach((u) => {
+        if (u.name === ADMIN_NAME && !u.email) { u.email = ADMIN_EMAIL; changed = true; }
+      });
+      if (changed) LS.set(USERS_KEY, users);
     }
     return users;
   }
@@ -85,9 +102,60 @@
     return Array.isArray(users) ? users.filter((u) => u.name === name)[0] || null : null;
   }
 
+  function findUserByEmail(email) {
+    const users = LS.get(USERS_KEY, []);
+    return Array.isArray(users) ? users.filter((u) => u.email === email)[0] || null : null;
+  }
+
   function currentUser() {
     const sess = LS.get(SESSION_KEY, null);
     return sess && sess.name ? findUser(sess.name) : null;
+  }
+
+  /* 数据层：发送验证码（本地模式直接返回明文验证码） */
+  function localSendCode(email) {
+    email = String(email || '').trim().toLowerCase();
+    if (!EMAIL_RE.test(email)) return { ok: false, msg: '请输入正确的邮箱地址' };
+    const codes = LS.get(CODES_KEY, []);
+    const now = Date.now();
+    // 60 秒频率限制
+    const recent = codes.filter((c) => c.email === email).sort((a, b) => b.at - a.at)[0];
+    if (recent && now - recent.at < 60000) {
+      const wait = Math.ceil((60000 - (now - recent.at)) / 1000);
+      return { ok: false, msg: '请 ' + wait + ' 秒后再获取验证码' };
+    }
+    const code = genCode();
+    codes.push({ email: email, code: code, at: now, used: false });
+    LS.set(CODES_KEY, codes.slice(-200));
+    return { ok: true, code: code };
+  }
+
+  /* 数据层：验证码登录/注册（本地模式） */
+  function localVerifyCode(email, code) {
+    email = String(email || '').trim().toLowerCase();
+    code = String(code || '').trim();
+    if (!EMAIL_RE.test(email)) return { ok: false, msg: '请输入正确的邮箱地址' };
+    if (!/^\d{6}$/.test(code)) return { ok: false, msg: '请输入 6 位数字验证码' };
+    const codes = LS.get(CODES_KEY, []);
+    const hit = codes.filter((c) => c.email === email && !c.used)
+                     .sort((a, b) => b.at - a.at)[0];
+    if (!hit) return { ok: false, msg: '请先获取验证码' };
+    if (Date.now() - hit.at > 5 * 60 * 1000) return { ok: false, msg: '验证码已过期，请重新获取' };
+    if (hit.code !== code) return { ok: false, msg: '验证码不正确' };
+    hit.used = true;
+    LS.set(CODES_KEY, codes);
+    let u = findUserByEmail(email);
+    if (!u) {
+      const local = email.split('@')[0];
+      let name = local, i = 1;
+      while (findUser(name)) { i++; name = local + i; }
+      const users = LS.get(USERS_KEY, []);
+      u = { name: name, email: email, role: 'user', createdAt: new Date().toISOString() };
+      users.push(u);
+      LS.set(USERS_KEY, users);
+    }
+    LS.set(SESSION_KEY, { name: u.name });
+    return { ok: true, user: u };
   }
 
   /* 数据层：注册 */
@@ -164,6 +232,17 @@
     },
     async register(name, pwd) {
       const r = register(name, pwd);
+      if (!r.ok) throw new Error(r.msg);
+      return currentUser();
+    },
+    async sendCode(email) {
+      const r = localSendCode(email);
+      if (!r.ok) throw new Error(r.msg);
+      // 本地模式没有邮件服务，把验证码回传给前端展示
+      return { ok: true, code: r.code, sent: false };
+    },
+    async verifyCode(email, code) {
+      const r = localVerifyCode(email, code);
       if (!r.ok) throw new Error(r.msg);
       return currentUser();
     },
@@ -281,7 +360,7 @@
       },
       async users() {
         return LS.get(USERS_KEY, []).map((u) => ({
-          id: u.name, name: u.name, role: u.role,
+          id: u.name, name: u.name, email: u.email || null, role: u.role,
           created_at: u.createdAt, assess_count: LS.get('hx_history', []).length
         }));
       },
@@ -337,6 +416,15 @@
     register: async (name, pwd) => {
       const r = await api('api/auth/register', {
         method: 'POST', body: JSON.stringify({ name: name, password: pwd })
+      });
+      token = r.token; LS.set(TOKEN_KEY, token); return r.user;
+    },
+    sendCode: async (email) => api('api/auth/send-code', {
+      method: 'POST', body: JSON.stringify({ email: email })
+    }),
+    verifyCode: async (email, code) => {
+      const r = await api('api/auth/verify', {
+        method: 'POST', body: JSON.stringify({ email: email, code: code })
       });
       token = r.token; LS.set(TOKEN_KEY, token); return r.user;
     },
@@ -405,6 +493,7 @@
   }
 
   let authTab = 'login';
+  let codeTimer = null;
 
   function renderAuthArea() {
     const box = $('#authArea');
@@ -436,6 +525,7 @@
   function closeAuth() {
     $('#authModal').hidden = true;
     document.body.style.overflow = '';
+    if (codeTimer) { clearInterval(codeTimer); codeTimer = null; }
   }
 
   $$('#authModal [data-auth-close]').forEach((el) =>
@@ -444,68 +534,143 @@
     if (e.key === 'Escape' && !$('#authModal').hidden) closeAuth();
   });
 
+  function startCodeCountdown(btn) {
+    let left = 60;
+    btn.disabled = true;
+    btn.textContent = left + 's 后重发';
+    if (codeTimer) clearInterval(codeTimer);
+    codeTimer = setInterval(() => {
+      left--;
+      if (left <= 0) {
+        clearInterval(codeTimer);
+        codeTimer = null;
+        btn.disabled = false;
+        btn.textContent = '获取验证码';
+      } else {
+        btn.textContent = left + 's 后重发';
+      }
+    }, 1000);
+  }
+
   function renderAuthModal() {
     const body = $('#authModalBody');
+    const isCode = authTab !== 'admin';
     body.innerHTML =
       '<h2 id="authTitle" style="margin-bottom:16px">' +
-      (authTab === 'login' ? '登录蕙心网' : '注册新账号') + '</h2>' +
+      (isCode ? '邮箱验证码登录' : '管理员登录') + '</h2>' +
       '<div class="auth-tabs">' +
-        '<button type="button" data-tab="login"' + (authTab === 'login' ? ' class="is-on"' : '') + '>登录</button>' +
-        '<button type="button" data-tab="register"' + (authTab === 'register' ? ' class="is-on"' : '') + '>注册</button>' +
+        '<button type="button" data-tab="login"' + (isCode ? ' class="is-on"' : '') + '>邮箱登录</button>' +
+        '<button type="button" data-tab="admin"' + (!isCode ? ' class="is-on"' : '') + '>管理员</button>' +
       '</div>' +
-      '<form class="auth-form" id="authForm" novalidate>' +
-        '<label>用户名' +
-          '<input type="text" id="authName" autocomplete="username" required></label>' +
-        '<label>密码' +
-          '<input type="password" id="authPwd"' +
-          (authTab === 'login' ? ' autocomplete="current-password"' : ' autocomplete="new-password"') + ' required></label>' +
-        (authTab === 'register'
-          ? '<label>确认密码<input type="password" id="authPwd2" autocomplete="new-password" required></label>'
-          : '') +
-        '<p class="auth-error" id="authError"></p>' +
-        '<button type="submit" class="btn btn-primary" id="authSubmit">' +
-        (authTab === 'login' ? '登录' : '注册并登录') + '</button>' +
-        '<p class="auth-note">未登录也可以完成情绪自评、浏览生理知识科普；登录后可查看自评历史。' +
-        '登录后生成的科普卡片将署名提交，经管理员审核后加入知识库。</p>' +
-      '</form>';
+      (isCode
+        ? '<form class="auth-form" id="authForm" novalidate>' +
+            '<label>邮箱' +
+              '<input type="email" id="authEmail" autocomplete="email" placeholder="you@example.com" required></label>' +
+            '<label>验证码' +
+              '<div style="display:flex;gap:8px">' +
+                '<input type="text" id="authCode" inputmode="numeric" maxlength="6" autocomplete="one-time-code" required style="flex:1">' +
+                '<button type="button" class="btn" id="sendCodeBtn" style="white-space:nowrap">获取验证码</button>' +
+              '</div>' +
+            '</label>' +
+            '<p class="auth-error" id="authError"></p>' +
+            '<button type="submit" class="btn btn-primary" id="authSubmit">登录 / 注册</button>' +
+            '<p class="auth-note">未注册的邮箱验证通过后将自动创建账号。' +
+            '未登录也可以完成情绪自评、浏览生理知识科普；登录后可查看自评历史。</p>' +
+          '</form>'
+        : '<form class="auth-form" id="authForm" novalidate>' +
+            '<label>用户名' +
+              '<input type="text" id="authName" autocomplete="username" required></label>' +
+            '<label>密码' +
+              '<input type="password" id="authPwd" autocomplete="current-password" required></label>' +
+            '<p class="auth-error" id="authError"></p>' +
+            '<button type="submit" class="btn btn-primary" id="authSubmit">登录</button>' +
+            '<p class="auth-note">管理员账号保留密码登录，用于后台管理。</p>' +
+          '</form>');
 
     $$('.auth-tabs button', body).forEach((b) => b.addEventListener('click', () => {
       authTab = b.getAttribute('data-tab');
+      if (codeTimer) { clearInterval(codeTimer); codeTimer = null; }
       renderAuthModal();
     }));
 
-    $('#authForm', body).addEventListener('submit', async (e) => {
-      e.preventDefault();
+    if (isCode) {
+      const emailInput = $('#authEmail', body);
+      const codeInput = $('#authCode', body);
+      const sendBtn = $('#sendCodeBtn', body);
       const err = $('#authError', body);
-      const submitBtn = $('#authSubmit', body);
-      err.textContent = '';
-      const name = $('#authName', body).value;
-      const pwd = $('#authPwd', body).value;
-      if (authTab === 'register' && pwd !== $('#authPwd2', body).value) {
-        err.textContent = '两次输入的密码不一致';
-        return;
-      }
-      submitBtn.disabled = true;
-      try {
-        me = authTab === 'register'
-          ? await svc.register(name, pwd)
-          : await svc.login(name, pwd);
-        const wasRegister = authTab === 'register';
-        closeAuth();
-        await applyRoleUI();
-        await refreshHistoryView();
-        toast((wasRegister ? '注册成功，' : '') + '欢迎你，' + me.name);
-      } catch (ex) {
-        err.textContent = ex.message;
-      } finally {
-        submitBtn.disabled = false;
-      }
-    });
 
-    setTimeout(() => {
-      const n = $('#authName', body);
-      if (n) n.focus();
-    }, 0);
+      sendBtn.addEventListener('click', async () => {
+        const email = emailInput.value.trim();
+        if (!EMAIL_RE.test(email.toLowerCase())) {
+          err.textContent = '请输入正确的邮箱地址';
+          return;
+        }
+        err.textContent = '';
+        sendBtn.disabled = true;
+        try {
+          const r = await svc.sendCode(email);
+          startCodeCountdown(sendBtn);
+          if (r && r.code) {
+            // 本地模式或 SMTP 未配置时，前端展示验证码
+            toast('验证码：' + r.code + '（演示模式，已直接显示）');
+          } else if (r && r.sent === false) {
+            toast('验证码已生成，请查看服务端控制台');
+          } else {
+            toast('验证码已发送至 ' + email + '，5 分钟内有效');
+          }
+          setTimeout(() => codeInput.focus(), 0);
+        } catch (ex) {
+          err.textContent = ex.message;
+          sendBtn.disabled = false;
+        }
+      });
+
+      $('#authForm', body).addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const submitBtn = $('#authSubmit', body);
+        const email = emailInput.value.trim();
+        const code = codeInput.value.trim();
+        err.textContent = '';
+        if (!EMAIL_RE.test(email.toLowerCase())) { err.textContent = '请输入正确的邮箱地址'; return; }
+        if (!/^\d{6}$/.test(code)) { err.textContent = '请输入 6 位数字验证码'; return; }
+        submitBtn.disabled = true;
+        try {
+          me = await svc.verifyCode(email, code);
+          closeAuth();
+          await applyRoleUI();
+          await refreshHistoryView();
+          toast('欢迎你，' + me.name);
+        } catch (ex) {
+          err.textContent = ex.message;
+        } finally {
+          submitBtn.disabled = false;
+        }
+      });
+
+      setTimeout(() => emailInput.focus(), 0);
+    } else {
+      $('#authForm', body).addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const err = $('#authError', body);
+        const submitBtn = $('#authSubmit', body);
+        err.textContent = '';
+        const name = $('#authName', body).value;
+        const pwd = $('#authPwd', body).value;
+        submitBtn.disabled = true;
+        try {
+          me = await svc.login(name, pwd);
+          closeAuth();
+          await applyRoleUI();
+          await refreshHistoryView();
+          toast('欢迎你，' + me.name);
+        } catch (ex) {
+          err.textContent = ex.message;
+        } finally {
+          submitBtn.disabled = false;
+        }
+      });
+      setTimeout(() => { const n = $('#authName', body); if (n) n.focus(); }, 0);
+    }
   }
 
   async function doLogout() {
@@ -2447,10 +2612,11 @@
     try { users = await svc.admin.users(); } catch (e) { /* */ }
     box.innerHTML =
       '<table class="admin-table"><thead><tr>' +
-        '<th>用户名</th><th>角色</th><th>注册时间</th><th>自评记录数</th>' +
+        '<th>用户名</th><th>邮箱</th><th>角色</th><th>注册时间</th><th>自评记录数</th>' +
       '</tr></thead><tbody>' +
       users.map((u) =>
         '<tr><td>' + esc(u.name) + '</td>' +
+        '<td>' + esc(u.email || '—') + '</td>' +
         '<td>' + (u.role === 'admin'
           ? '<span class="role-badge admin">管理员</span>'
           : '<span class="role-badge">用户</span>') + '</td>' +

@@ -13,5 +13,5 @@ if __name__ == '__main__':
     host = sys.argv[1] if len(sys.argv) > 1 else '127.0.0.1'
     port = int(sys.argv[2]) if len(sys.argv) > 2 else 8200
     print('[蕙心网] 服务已启动：http://%s:%d' % (host, port))
-    print('[蕙心网] 管理入口：登录管理员账号后，页面显示「后台管理」')
+    print('[蕙心网] 普通用户：邮箱验证码登录；管理员：admin / Huixin@2026')
     app.run(host=host, port=port, debug=False)
