@@ -739,9 +739,11 @@
               '<button type="button" class="btn" id="sendCodeBtn" style="white-space:nowrap">获取验证码</button>' +
             '</div>' +
           '</label>' +
-          '<div id="pwdField" hidden>' +
+          '<div id="pwdField"' + (isReset ? '' : ' hidden') + '>' +
             '<label>' + (isReset ? '新密码' : '设置密码') +
               '<input type="password" id="authPwd" autocomplete="new-password" placeholder="至少 6 位"></label>' +
+            '<label>确认' + (isReset ? '新密码' : '密码') +
+              '<input type="password" id="authPwd2" autocomplete="new-password" placeholder="请再次输入密码"></label>' +
           '</div>' +
           '<p class="auth-error" id="authError"></p>' +
           '<button type="submit" class="btn btn-primary" id="authSubmit">' +
@@ -800,6 +802,7 @@
     const codeInput = $('#authCode', body);
     const pwdField = $('#pwdField', body);
     const pwdInput = $('#authPwd', body);
+    const pwdInput2 = $('#authPwd2', body);
     const sendBtn = $('#sendCodeBtn', body);
     const submitBtn = $('#authSubmit', body);
     let emailExists = isReset; // reset 页发送时已确认存在
@@ -844,14 +847,23 @@
       const email = emailInput.value.trim();
       const code = codeInput.value.trim();
       const pwd = pwdInput ? pwdInput.value : '';
+      const pwd2 = pwdInput2 ? pwdInput2.value : '';
       err.textContent = '';
       if (!EMAIL_RE.test(email.toLowerCase())) { err.textContent = '请输入正确的邮箱地址'; return; }
       if (!/^\d{6}$/.test(code)) { err.textContent = '请输入 6 位数字验证码'; return; }
-      if (isReset && pwd.length < 6) { err.textContent = '新密码至少需要 6 位'; return; }
-      if (!isReset && !emailExists && pwd.length < 6) {
+      const needPwd = isReset || !emailExists;
+      if (needPwd) {
         pwdField.hidden = false;
-        err.textContent = '首次使用该邮箱，请设置至少 6 位密码';
-        return;
+        if (pwd.length < 6) {
+          err.textContent = (isReset ? '新密码' : '密码') + '至少需要 6 位';
+          pwdInput.focus();
+          return;
+        }
+        if (pwd !== pwd2) {
+          err.textContent = '两次输入的密码不一致，请重新输入';
+          pwdInput2.focus();
+          return;
+        }
       }
       submitBtn.disabled = true;
       try {
