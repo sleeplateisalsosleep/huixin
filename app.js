@@ -42,9 +42,10 @@
   };
 
   /* ---------------------------------------------------------
-     0.5 账号体系（邮箱验证码登录 / 管理员密码兜底 / 会话 / 角色）
-     普通用户使用邮箱 + 6 位验证码登录，邮箱未注册则自动创建账号；
-     管理员保留用户名 + 密码登录作为后台兜底入口。
+     0.5 账号体系（邮箱验证码 / 邮箱密码登录 / 忘记密码 / 会话 / 角色）
+     注册：邮箱 + 验证码，首次注册必须设置密码；
+     登录：可选邮箱 + 密码，或邮箱 + 验证码；忘记密码走验证码重置；
+     管理员使用同一入口（邮箱即管理员邮箱），登录后按角色显示后台。
      远程后端可用时走 API，否则本地模式（验证码直接展示）。
      --------------------------------------------------------- */
   const USERS_KEY = 'hx_users';
@@ -113,9 +114,11 @@
   }
 
   /* 数据层：发送验证码（本地模式直接返回明文验证码） */
-  function localSendCode(email) {
+  function localSendCode(email, purpose) {
     email = String(email || '').trim().toLowerCase();
     if (!EMAIL_RE.test(email)) return { ok: false, msg: '请输入正确的邮箱地址' };
+    const exists = !!findUserByEmail(email);
+    if (purpose === 'reset' && !exists) return { ok: false, msg: '该邮箱尚未注册' };
     const codes = LS.get(CODES_KEY, []);
     const now = Date.now();
     // 60 秒频率限制
@@ -127,14 +130,13 @@
     const code = genCode();
     codes.push({ email: email, code: code, at: now, used: false });
     LS.set(CODES_KEY, codes.slice(-200));
-    return { ok: true, code: code };
+    return { ok: true, code: code, exists: exists };
   }
 
-  /* 数据层：验证码登录/注册（本地模式） */
-  function localVerifyCode(email, code) {
+  /* 数据层：校验并消费验证码（本地模式） */
+  function localConsumeCode(email, code) {
     email = String(email || '').trim().toLowerCase();
     code = String(code || '').trim();
-    if (!EMAIL_RE.test(email)) return { ok: false, msg: '请输入正确的邮箱地址' };
     if (!/^\d{6}$/.test(code)) return { ok: false, msg: '请输入 6 位数字验证码' };
     const codes = LS.get(CODES_KEY, []);
     const hit = codes.filter((c) => c.email === email && !c.used)
@@ -144,16 +146,63 @@
     if (hit.code !== code) return { ok: false, msg: '验证码不正确' };
     hit.used = true;
     LS.set(CODES_KEY, codes);
+    return { ok: true };
+  }
+
+  /* 数据层：验证码登录/注册（本地模式）；新邮箱必须携带 pwd 设置密码 */
+  function localVerifyCode(email, code, pwd) {
+    email = String(email || '').trim().toLowerCase();
+    if (!EMAIL_RE.test(email)) return { ok: false, msg: '请输入正确的邮箱地址' };
     let u = findUserByEmail(email);
+    if (!u && String(pwd || '').length < 6) {
+      return { ok: false, msg: '首次使用该邮箱，请设置至少 6 位密码' };
+    }
+    const chk = localConsumeCode(email, code);
+    if (!chk.ok) return chk;
     if (!u) {
       const local = email.split('@')[0];
       let name = local, i = 1;
       while (findUser(name)) { i++; name = local + i; }
+      const salt = makeSalt();
       const users = LS.get(USERS_KEY, []);
-      u = { name: name, email: email, role: 'user', createdAt: new Date().toISOString() };
+      u = {
+        name: name, email: email, role: 'user', salt: salt,
+        pwdHash: hashPwd(pwd, salt), createdAt: new Date().toISOString()
+      };
       users.push(u);
       LS.set(USERS_KEY, users);
     }
+    LS.set(SESSION_KEY, { name: u.name });
+    return { ok: true, user: u };
+  }
+
+  /* 数据层：邮箱 + 密码登录（本地模式） */
+  function localEmailLogin(email, pwd) {
+    email = String(email || '').trim().toLowerCase();
+    if (!EMAIL_RE.test(email)) return { ok: false, msg: '请输入正确的邮箱地址' };
+    const u = findUserByEmail(email);
+    if (!u) return { ok: false, msg: '该邮箱尚未注册' };
+    if (!u.pwdHash || u.pwdHash !== hashPwd(String(pwd || ''), u.salt)) {
+      return { ok: false, msg: '邮箱或密码不正确' };
+    }
+    LS.set(SESSION_KEY, { name: u.name });
+    return { ok: true, user: u };
+  }
+
+  /* 数据层：忘记密码（本地模式）：验证码验证后重设密码 */
+  function localResetPassword(email, code, pwd) {
+    email = String(email || '').trim().toLowerCase();
+    if (!EMAIL_RE.test(email)) return { ok: false, msg: '请输入正确的邮箱地址' };
+    if (String(pwd || '').length < 6) return { ok: false, msg: '新密码至少需要 6 位' };
+    const u = findUserByEmail(email);
+    if (!u) return { ok: false, msg: '该邮箱尚未注册' };
+    const chk = localConsumeCode(email, code);
+    if (!chk.ok) return chk;
+    u.salt = makeSalt();
+    u.pwdHash = hashPwd(pwd, u.salt);
+    const users = LS.get(USERS_KEY, []);
+    for (let i = 0; i < users.length; i++) if (users[i].name === u.name) users[i] = u;
+    LS.set(USERS_KEY, users);
     LS.set(SESSION_KEY, { name: u.name });
     return { ok: true, user: u };
   }
@@ -253,14 +302,24 @@
       if (!r.ok) throw new Error(r.msg);
       return currentUser();
     },
-    async sendCode(email) {
-      const r = localSendCode(email);
+    async sendCode(email, purpose) {
+      const r = localSendCode(email, purpose);
       if (!r.ok) throw new Error(r.msg);
       // 本地模式没有邮件服务，把验证码回传给前端展示
-      return { ok: true, code: r.code, sent: false };
+      return { ok: true, code: r.code, sent: false, exists: r.exists };
     },
-    async verifyCode(email, code) {
-      const r = localVerifyCode(email, code);
+    async verifyCode(email, code, pwd) {
+      const r = localVerifyCode(email, code, pwd);
+      if (!r.ok) throw new Error(r.msg);
+      return currentUser();
+    },
+    async loginPassword(email, pwd) {
+      const r = localEmailLogin(email, pwd);
+      if (!r.ok) throw new Error(r.msg);
+      return currentUser();
+    },
+    async resetPassword(email, code, pwd) {
+      const r = localResetPassword(email, code, pwd);
       if (!r.ok) throw new Error(r.msg);
       return currentUser();
     },
@@ -437,12 +496,24 @@
       });
       token = r.token; LS.set(TOKEN_KEY, token); return r.user;
     },
-    sendCode: async (email) => api('api/auth/send-code', {
-      method: 'POST', body: JSON.stringify({ email: email })
+    sendCode: async (email, purpose) => api('api/auth/send-code', {
+      method: 'POST', body: JSON.stringify({ email: email, purpose: purpose || 'login' })
     }),
-    verifyCode: async (email, code) => {
+    verifyCode: async (email, code, pwd) => {
       const r = await api('api/auth/verify', {
-        method: 'POST', body: JSON.stringify({ email: email, code: code })
+        method: 'POST', body: JSON.stringify({ email: email, code: code, password: pwd || '' })
+      });
+      token = r.token; LS.set(TOKEN_KEY, token); return r.user;
+    },
+    loginPassword: async (email, pwd) => {
+      const r = await api('api/auth/login-email', {
+        method: 'POST', body: JSON.stringify({ email: email, password: pwd })
+      });
+      token = r.token; LS.set(TOKEN_KEY, token); return r.user;
+    },
+    resetPassword: async (email, code, pwd) => {
+      const r = await api('api/auth/reset-password', {
+        method: 'POST', body: JSON.stringify({ email: email, code: code, password: pwd })
       });
       token = r.token; LS.set(TOKEN_KEY, token); return r.user;
     },
@@ -519,7 +590,7 @@
     return r;
   }
 
-  let authTab = 'login';
+  let authTab = 'code';
   let codeTimer = null;
 
   function renderAuthArea() {
@@ -543,7 +614,8 @@
   }
 
   function openAuth(tab) {
-    authTab = tab || 'login';
+    authTab = tab || 'code';
+    if (authTab === 'login' || authTab === 'register') authTab = 'code';
     renderAuthModal();
     $('#authModal').hidden = false;
     document.body.style.overflow = 'hidden';
@@ -581,38 +653,60 @@
 
   function renderAuthModal() {
     const body = $('#authModalBody');
-    const isCode = authTab !== 'admin';
+    if (authTab === 'register') authTab = 'code';
+    const tabDefs = [
+      ['password', '密码登录'],
+      ['code', '验证码登录'],
+      ['reset', '忘记密码']
+    ];
+    const titles = { password: '邮箱密码登录', code: '邮箱验证码登录', reset: '找回密码' };
+    let formHtml = '';
+
+    if (authTab === 'password') {
+      formHtml =
+        '<form class="auth-form" id="authForm" novalidate>' +
+          '<label>邮箱' +
+            '<input type="email" id="authEmail" autocomplete="email" placeholder="you@example.com" required></label>' +
+          '<label>密码' +
+            '<input type="password" id="authPwd" autocomplete="current-password" required></label>' +
+          '<p class="auth-error" id="authError"></p>' +
+          '<button type="submit" class="btn btn-primary" id="authSubmit">登录</button>' +
+          '<p class="auth-note">普通用户与管理员均可使用邮箱 + 密码登录；' +
+          '管理员登录后自动显示后台管理入口。忘记密码请切换到「忘记密码」。</p>' +
+        '</form>';
+    } else {
+      const isReset = authTab === 'reset';
+      formHtml =
+        '<form class="auth-form" id="authForm" novalidate>' +
+          '<label>邮箱' +
+            '<input type="email" id="authEmail" autocomplete="email" placeholder="you@example.com" required></label>' +
+          '<label>验证码' +
+            '<div style="display:flex;gap:8px">' +
+              '<input type="text" id="authCode" inputmode="numeric" maxlength="6" autocomplete="one-time-code" required style="flex:1">' +
+              '<button type="button" class="btn" id="sendCodeBtn" style="white-space:nowrap">获取验证码</button>' +
+            '</div>' +
+          '</label>' +
+          '<div id="pwdField" hidden>' +
+            '<label>' + (isReset ? '新密码' : '设置密码') +
+              '<input type="password" id="authPwd" autocomplete="new-password" placeholder="至少 6 位"></label>' +
+          '</div>' +
+          '<p class="auth-error" id="authError"></p>' +
+          '<button type="submit" class="btn btn-primary" id="authSubmit">' +
+            (isReset ? '重置密码并登录' : '登录 / 注册') + '</button>' +
+          '<p class="auth-note">' + (isReset
+            ? '验证码验证通过后即可设置新密码，并自动登录。管理员账号同样适用。'
+            : '首次使用的邮箱在验证码通过后将创建账号，届时会要求设置密码；' +
+              '登录后可查看自评历史、投稿科普卡。') + '</p>' +
+        '</form>';
+    }
+
     body.innerHTML =
-      '<h2 id="authTitle" style="margin-bottom:16px">' +
-      (isCode ? '邮箱验证码登录' : '管理员登录') + '</h2>' +
+      '<h2 id="authTitle" style="margin-bottom:16px">' + titles[authTab] + '</h2>' +
       '<div class="auth-tabs">' +
-        '<button type="button" data-tab="login"' + (isCode ? ' class="is-on"' : '') + '>邮箱登录</button>' +
-        '<button type="button" data-tab="admin"' + (!isCode ? ' class="is-on"' : '') + '>管理员</button>' +
-      '</div>' +
-      (isCode
-        ? '<form class="auth-form" id="authForm" novalidate>' +
-            '<label>邮箱' +
-              '<input type="email" id="authEmail" autocomplete="email" placeholder="you@example.com" required></label>' +
-            '<label>验证码' +
-              '<div style="display:flex;gap:8px">' +
-                '<input type="text" id="authCode" inputmode="numeric" maxlength="6" autocomplete="one-time-code" required style="flex:1">' +
-                '<button type="button" class="btn" id="sendCodeBtn" style="white-space:nowrap">获取验证码</button>' +
-              '</div>' +
-            '</label>' +
-            '<p class="auth-error" id="authError"></p>' +
-            '<button type="submit" class="btn btn-primary" id="authSubmit">登录 / 注册</button>' +
-            '<p class="auth-note">未注册的邮箱验证通过后将自动创建账号。' +
-            '未登录也可以完成情绪自评、浏览生理知识科普；登录后可查看自评历史。</p>' +
-          '</form>'
-        : '<form class="auth-form" id="authForm" novalidate>' +
-            '<label>用户名' +
-              '<input type="text" id="authName" autocomplete="username" required></label>' +
-            '<label>密码' +
-              '<input type="password" id="authPwd" autocomplete="current-password" required></label>' +
-            '<p class="auth-error" id="authError"></p>' +
-            '<button type="submit" class="btn btn-primary" id="authSubmit">登录</button>' +
-            '<p class="auth-note">管理员账号保留密码登录，用于后台管理。</p>' +
-          '</form>');
+        tabDefs.map((t) =>
+          '<button type="button" data-tab="' + t[0] + '"' +
+          (authTab === t[0] ? ' class="is-on"' : '') + '>' + t[1] + '</button>').join('') +
+      '</div>' + formHtml;
 
     $$('.auth-tabs button', body).forEach((b) => b.addEventListener('click', () => {
       authTab = b.getAttribute('data-tab');
@@ -620,49 +714,19 @@
       renderAuthModal();
     }));
 
-    if (isCode) {
-      const emailInput = $('#authEmail', body);
-      const codeInput = $('#authCode', body);
-      const sendBtn = $('#sendCodeBtn', body);
-      const err = $('#authError', body);
+    const err = $('#authError', body);
 
-      sendBtn.addEventListener('click', async () => {
-        const email = emailInput.value.trim();
-        if (!EMAIL_RE.test(email.toLowerCase())) {
-          err.textContent = '请输入正确的邮箱地址';
-          return;
-        }
-        err.textContent = '';
-        sendBtn.disabled = true;
-        try {
-          const r = await svc.sendCode(email);
-          startCodeCountdown(sendBtn);
-          if (r && r.code) {
-            // 本地模式或 SMTP 未配置时，前端展示验证码
-            toast('验证码：' + r.code + '（演示模式，已直接显示）');
-          } else if (r && r.sent === false) {
-            toast('验证码已生成，请查看服务端控制台');
-          } else {
-            toast('验证码已发送至 ' + email + '，5 分钟内有效');
-          }
-          setTimeout(() => codeInput.focus(), 0);
-        } catch (ex) {
-          err.textContent = ex.message;
-          sendBtn.disabled = false;
-        }
-      });
-
+    if (authTab === 'password') {
       $('#authForm', body).addEventListener('submit', async (e) => {
         e.preventDefault();
         const submitBtn = $('#authSubmit', body);
-        const email = emailInput.value.trim();
-        const code = codeInput.value.trim();
+        const email = $('#authEmail', body).value.trim();
+        const pwd = $('#authPwd', body).value;
         err.textContent = '';
         if (!EMAIL_RE.test(email.toLowerCase())) { err.textContent = '请输入正确的邮箱地址'; return; }
-        if (!/^\d{6}$/.test(code)) { err.textContent = '请输入 6 位数字验证码'; return; }
         submitBtn.disabled = true;
         try {
-          me = await svc.verifyCode(email, code);
+          me = await svc.loginPassword(email, pwd);
           closeAuth();
           await applyRoleUI();
           await refreshHistoryView();
@@ -673,31 +737,89 @@
           submitBtn.disabled = false;
         }
       });
-
-      setTimeout(() => emailInput.focus(), 0);
-    } else {
-      $('#authForm', body).addEventListener('submit', async (e) => {
-        e.preventDefault();
-        const err = $('#authError', body);
-        const submitBtn = $('#authSubmit', body);
-        err.textContent = '';
-        const name = $('#authName', body).value;
-        const pwd = $('#authPwd', body).value;
-        submitBtn.disabled = true;
-        try {
-          me = await svc.login(name, pwd);
-          closeAuth();
-          await applyRoleUI();
-          await refreshHistoryView();
-          toast('欢迎你，' + me.name);
-        } catch (ex) {
-          err.textContent = ex.message;
-        } finally {
-          submitBtn.disabled = false;
-        }
-      });
-      setTimeout(() => { const n = $('#authName', body); if (n) n.focus(); }, 0);
+      setTimeout(() => { const el = $('#authEmail', body); if (el) el.focus(); }, 0);
+      return;
     }
+
+    /* 验证码登录 / 找回密码（共用验证码发送与提交逻辑） */
+    const isReset = authTab === 'reset';
+    const emailInput = $('#authEmail', body);
+    const codeInput = $('#authCode', body);
+    const pwdField = $('#pwdField', body);
+    const pwdInput = $('#authPwd', body);
+    const sendBtn = $('#sendCodeBtn', body);
+    const submitBtn = $('#authSubmit', body);
+    let emailExists = isReset; // reset 页发送时已确认存在
+
+    sendBtn.addEventListener('click', async () => {
+      const email = emailInput.value.trim();
+      if (!EMAIL_RE.test(email.toLowerCase())) {
+        err.textContent = '请输入正确的邮箱地址';
+        return;
+      }
+      err.textContent = '';
+      sendBtn.disabled = true;
+      try {
+        const r = await svc.sendCode(email, isReset ? 'reset' : 'login');
+        emailExists = isReset || !!(r && r.exists);
+        if (!isReset) {
+          // 新邮箱要求设置密码；已有邮箱隐藏密码框
+          pwdField.hidden = emailExists;
+          if (pwdInput) pwdInput.required = !emailExists;
+        }
+        startCodeCountdown(sendBtn);
+        if (r && r.code) {
+          // 本地模式或 SMTP 未配置时，前端展示验证码
+          toast('验证码：' + r.code + '（演示模式，已直接显示）');
+        } else if (r && r.sent === false) {
+          toast('验证码已生成，请查看服务端控制台');
+        } else {
+          toast('验证码已发送至 ' + email + '，5 分钟内有效');
+        }
+        if (!isReset && !emailExists) {
+          toast('该邮箱将创建新账号，请设置登录密码');
+        }
+        setTimeout(() => codeInput.focus(), 0);
+      } catch (ex) {
+        err.textContent = ex.message;
+        sendBtn.disabled = false;
+      }
+    });
+
+    $('#authForm', body).addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const email = emailInput.value.trim();
+      const code = codeInput.value.trim();
+      const pwd = pwdInput ? pwdInput.value : '';
+      err.textContent = '';
+      if (!EMAIL_RE.test(email.toLowerCase())) { err.textContent = '请输入正确的邮箱地址'; return; }
+      if (!/^\d{6}$/.test(code)) { err.textContent = '请输入 6 位数字验证码'; return; }
+      if (isReset && pwd.length < 6) { err.textContent = '新密码至少需要 6 位'; return; }
+      if (!isReset && !emailExists && pwd.length < 6) {
+        pwdField.hidden = false;
+        err.textContent = '首次使用该邮箱，请设置至少 6 位密码';
+        return;
+      }
+      submitBtn.disabled = true;
+      try {
+        if (isReset) {
+          me = await svc.resetPassword(email, code, pwd);
+          toast('密码已重置，欢迎你，' + me.name);
+        } else {
+          me = await svc.verifyCode(email, code, emailExists ? '' : pwd);
+          toast('欢迎你，' + me.name);
+        }
+        closeAuth();
+        await applyRoleUI();
+        await refreshHistoryView();
+      } catch (ex) {
+        err.textContent = ex.message;
+      } finally {
+        submitBtn.disabled = false;
+      }
+    });
+
+    setTimeout(() => emailInput.focus(), 0);
   }
 
   async function doLogout() {

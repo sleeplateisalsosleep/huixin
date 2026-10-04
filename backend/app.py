@@ -257,12 +257,18 @@ def create_app():
     # ================= 账户：邮箱验证码 =================
     @app.post('/api/auth/send-code')
     def send_code():
-        """向邮箱发送 6 位验证码（5 分钟有效，60 秒内不可重复发送）。"""
+        """向邮箱发送 6 位验证码（5 分钟有效，60 秒内不可重复发送）。
+        purpose: login（登录/注册，默认）或 reset（找回密码）。
+        返回 exists 供前端区分新邮箱（需设置密码）与已有账号。"""
         p = request.get_json(silent=True) or {}
         email = str(p.get('email', '')).strip().lower()
+        purpose = str(p.get('purpose', 'login')).strip().lower()
         if not valid_email(email):
             return err('请输入正确的邮箱地址')
         db = get_db()
+        exists = db.execute('SELECT id FROM users WHERE email = ?', (email,)).fetchone() is not None
+        if purpose == 'reset' and not exists:
+            return err('该邮箱尚未注册')
         # 频率限制：同一邮箱 60 秒内只能发送一次
         recent = db.execute(
             "SELECT created_at FROM email_codes WHERE email = ? ORDER BY id DESC LIMIT 1",
@@ -286,19 +292,13 @@ def create_app():
         body = ('【蕙心网】您的验证码为 %s，%d 分钟内有效。\n'
                 '如非本人操作，请忽略本邮件。' % (code, CODE_TTL_MINUTES))
         send_mail(email, subject, body)
-        return jsonify({'ok': True, 'ttl': CODE_TTL_MINUTES * 60, 'sent': SMTP_READY})
+        return jsonify({'ok': True, 'ttl': CODE_TTL_MINUTES * 60,
+                        'sent': SMTP_READY, 'exists': exists})
 
-    @app.post('/api/auth/verify')
-    def verify_code():
-        """邮箱 + 验证码登录/注册（邮箱不存在则自动注册）。"""
-        p = request.get_json(silent=True) or {}
-        email = str(p.get('email', '')).strip().lower()
-        code = str(p.get('code', '')).strip()
-        if not valid_email(email):
-            return err('请输入正确的邮箱地址')
+    def _consume_code(db, email, code):
+        """校验并消费验证码；失败返回错误响应元组，成功返回 None。"""
         if not code.isdigit() or len(code) != 6:
             return err('请输入 6 位数字验证码')
-        db = get_db()
         row = db.execute(
             "SELECT * FROM email_codes WHERE email = ? AND used = 0 ORDER BY id DESC LIMIT 1",
             (email,)).fetchone()
@@ -313,8 +313,24 @@ def create_app():
         if code != row['code']:
             return err('验证码不正确', 401)
         db.execute("UPDATE email_codes SET used = 1 WHERE id = ?", (row['id'],))
-        # 查找或创建用户
+        return None
+
+    @app.post('/api/auth/verify')
+    def verify_code():
+        """邮箱 + 验证码登录；邮箱未注册时自动注册，此时必须携带 password 设置初始密码。"""
+        p = request.get_json(silent=True) or {}
+        email = str(p.get('email', '')).strip().lower()
+        code = str(p.get('code', '')).strip()
+        password = str(p.get('password', ''))
+        if not valid_email(email):
+            return err('请输入正确的邮箱地址')
+        db = get_db()
         user = db.execute("SELECT * FROM users WHERE email = ?", (email,)).fetchone()
+        if user is None and len(password) < 6:
+            return err('首次使用该邮箱，请设置至少 6 位密码')
+        fail = _consume_code(db, email, code)
+        if fail:
+            return fail
         if user is None:
             # 用邮箱本地部分作为显示名（冲突则追加序号）
             local = email.split('@')[0]
@@ -325,15 +341,55 @@ def create_app():
                 name = '%s%d' % (local, i)
             cur = db.execute(
                 'INSERT INTO users (name, email, pwd_hash, role, created_at) VALUES (?,?,?,?,?)',
-                (name, email, None, 'user', now_iso()))
+                (name, email, hash_password(password), 'user', now_iso()))
             user = db.execute('SELECT * FROM users WHERE id = ?', (cur.lastrowid,)).fetchone()
+        db.commit()
+        token = create_session(user['id'])
+        return jsonify({'token': token, 'user': user_public(user)})
+
+    @app.post('/api/auth/login-email')
+    def login_email():
+        """邮箱 + 密码登录（普通用户与管理员通用）。"""
+        p = request.get_json(silent=True) or {}
+        email = str(p.get('email', '')).strip().lower()
+        pwd = str(p.get('password', ''))
+        if not valid_email(email):
+            return err('请输入正确的邮箱地址')
+        row = get_db().execute('SELECT * FROM users WHERE email = ?', (email,)).fetchone()
+        if row is None:
+            return err('该邮箱尚未注册', 401)
+        if not row['pwd_hash'] or not verify_password(pwd, row['pwd_hash']):
+            return err('邮箱或密码不正确', 401)
+        token = create_session(row['id'])
+        return jsonify({'token': token, 'user': user_public(row)})
+
+    @app.post('/api/auth/reset-password')
+    def reset_password():
+        """忘记密码：邮箱 + 验证码验证身份后设置新密码。"""
+        p = request.get_json(silent=True) or {}
+        email = str(p.get('email', '')).strip().lower()
+        code = str(p.get('code', '')).strip()
+        password = str(p.get('password', ''))
+        if not valid_email(email):
+            return err('请输入正确的邮箱地址')
+        if len(password) < 6:
+            return err('新密码至少需要 6 位')
+        db = get_db()
+        user = db.execute('SELECT * FROM users WHERE email = ?', (email,)).fetchone()
+        if user is None:
+            return err('该邮箱尚未注册')
+        fail = _consume_code(db, email, code)
+        if fail:
+            return fail
+        db.execute('UPDATE users SET pwd_hash = ? WHERE id = ?',
+                   (hash_password(password), user['id']))
         db.commit()
         token = create_session(user['id'])
         return jsonify({'token': token, 'user': user_public(user)})
 
     @app.post('/api/auth/login')
     def login():
-        """管理员密码登录（保留作为后台兜底入口）。"""
+        """用户名 + 密码登录（保留作为兼容入口）。"""
         p = request.get_json(silent=True) or {}
         name = str(p.get('name', '')).strip()
         pwd = str(p.get('password', ''))
