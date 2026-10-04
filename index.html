@@ -46,7 +46,7 @@
           <a class="btn btn-ghost" href="#feature2">浏览生理知识科普</a>
         </div>
         <ul class="hero-stats">
-          <li><b>5</b><span>步情绪自评 · 3 条护理分支</span></li>
+          <li><b>4</b><span>步情绪自评 · 3 条护理分支</span></li>
           <li><b>9</b><span>项风险信号筛查</span></li>
           <li><b>37</b><span>条生理知识 · 9 大分类</span></li>
         </ul>
@@ -97,7 +97,7 @@
         <div class="assess-head">
           <div>
             <h3>互动护理流程 · 情绪自评</h3>
-            <p class="muted">共 5 步，约 2 分钟；答案只保存在你自己的浏览器本地，不会上传服务器。</p>
+            <p class="muted">共 4 步，约 2 分钟；答案只保存在你自己的浏览器本地，不会上传服务器。</p>
           </div>
           <div class="assess-progress" aria-hidden="true"><span id="progressBar"></span></div>
         </div>
@@ -107,10 +107,9 @@
           <form class="assess-panel" id="assessForm" novalidate>
             <ol class="steps" id="stepNav">
               <li data-step="1" class="is-active"><b>1</b><span>情绪自评</span></li>
-              <li data-step="2"><b>2</b><span>情绪识别</span></li>
-              <li data-step="3"><b>3</b><span>趋势与健康特征</span></li>
-              <li data-step="4"><b>4</b><span>风险与干预</span></li>
-              <li data-step="5"><b>5</b><span>护理建议</span></li>
+              <li data-step="2"><b>2</b><span>趋势与健康特征</span></li>
+              <li data-step="3"><b>3</b><span>风险与干预</span></li>
+              <li data-step="4"><b>4</b><span>护理建议</span></li>
             </ol>
 
             <!-- step1 -->
@@ -123,6 +122,37 @@
                   <span class="field-hint">写下今天的一句话，系统会从中提取情绪线索关键词。</span>
                   <button type="button" class="link-btn" id="skipDiary">跳过文字日记 →</button>
                 </div>
+              </div>
+              <div class="field">
+                <span class="field-label">此刻的情绪类型（可多选）</span>
+                <span class="field-hint">系统将结合文字日记判断「负面情绪是否过多」。</span>
+                <div class="chips chips-lg" id="emoChips" role="group" aria-label="情绪类型">
+                  <label class="chip chip-emo"><input type="checkbox" name="emotion" value="平静"><span class="emo emo-calm">平静</span></label>
+                  <label class="chip chip-emo"><input type="checkbox" name="emotion" value="愉悦"><span class="emo emo-joy">愉悦</span></label>
+                  <label class="chip chip-emo"><input type="checkbox" name="emotion" value="焦虑"><span class="emo emo-anx">焦虑</span></label>
+                  <label class="chip chip-emo"><input type="checkbox" name="emotion" value="低落"><span class="emo emo-low">低落</span></label>
+                  <label class="chip chip-emo"><input type="checkbox" name="emotion" value="烦躁"><span class="emo emo-irr">烦躁</span></label>
+                  <label class="chip chip-emo"><input type="checkbox" name="emotion" value="疲惫"><span class="emo emo-tired">疲惫</span></label>
+                  <label class="chip chip-emo"><input type="checkbox" name="emotion" value="委屈想哭"><span class="emo emo-cry">委屈想哭</span></label>
+                  <label class="chip chip-emo"><input type="checkbox" name="emotion" value="易怒失控"><span class="emo emo-rage">易怒失控</span></label>
+                </div>
+              </div>
+              <div class="grid-2">
+                <label class="field">
+                  <span class="field-label">这次情绪持续了多久？</span>
+                  <select id="duration">
+                    <option value="hours">几个小时内（今天才出现）</option>
+                    <option value="1-2d">1～2 天</option>
+                    <option value="3-5d">3～5 天</option>
+                    <option value="week">一周及以上</option>
+                    <option value="weeks">两周以上，反复出现</option>
+                  </select>
+                </label>
+                <label class="field">
+                  <span class="field-label">影响程度 <b id="intensityOut">5</b> / 10</span>
+                  <input type="range" id="intensity" min="0" max="10" step="1" value="5">
+                  <span class="field-hint">0＝几乎没影响，10＝完全无法工作或生活。</span>
+                </label>
               </div>
               <div class="field">
                 <span class="field-label">身体感受（可多选）</span>
@@ -142,37 +172,6 @@
 
             <!-- step2 -->
             <fieldset class="step-panel" data-step="2">
-              <legend>情绪识别：请选择此刻的情绪类型</legend>
-              <p class="field-hint">可多选。系统将判断「负面情绪是否过多」。</p>
-              <div class="chips chips-lg" id="emoChips" role="group" aria-label="情绪类型">
-                <label class="chip chip-emo"><input type="checkbox" name="emotion" value="平静"><span class="emo emo-calm">平静</span></label>
-                <label class="chip chip-emo"><input type="checkbox" name="emotion" value="愉悦"><span class="emo emo-joy">愉悦</span></label>
-                <label class="chip chip-emo"><input type="checkbox" name="emotion" value="焦虑"><span class="emo emo-anx">焦虑</span></label>
-                <label class="chip chip-emo"><input type="checkbox" name="emotion" value="低落"><span class="emo emo-low">低落</span></label>
-                <label class="chip chip-emo"><input type="checkbox" name="emotion" value="烦躁"><span class="emo emo-irr">烦躁</span></label>
-                <label class="chip chip-emo"><input type="checkbox" name="emotion" value="疲惫"><span class="emo emo-tired">疲惫</span></label>
-                <label class="chip chip-emo"><input type="checkbox" name="emotion" value="委屈想哭"><span class="emo emo-cry">委屈想哭</span></label>
-                <label class="chip chip-emo"><input type="checkbox" name="emotion" value="易怒失控"><span class="emo emo-rage">易怒失控</span></label>
-              </div>
-              <label class="field">
-                <span class="field-label">这次情绪持续了多久？</span>
-                <select id="duration">
-                  <option value="hours">几个小时内（今天才出现）</option>
-                  <option value="1-2d">1～2 天</option>
-                  <option value="3-5d">3～5 天</option>
-                  <option value="week">一周及以上</option>
-                  <option value="weeks">两周以上，反复出现</option>
-                </select>
-              </label>
-              <label class="field">
-                <span class="field-label">影响程度 <b id="intensityOut">5</b> / 10</span>
-                <input type="range" id="intensity" min="0" max="10" step="1" value="5">
-                <span class="field-hint">0＝几乎没影响，10＝完全无法工作或生活。</span>
-              </label>
-            </fieldset>
-
-            <!-- step3 -->
-            <fieldset class="step-panel" data-step="3">
               <legend>预测情绪趋势：健康特征匹配</legend>
               <div class="grid-2">
                 <label class="field">
@@ -220,8 +219,8 @@
               </label>
             </fieldset>
 
-            <!-- step4 -->
-            <fieldset class="step-panel" data-step="4">
+            <!-- step3 -->
+            <fieldset class="step-panel" data-step="3">
               <legend>风险与干预：最后确认</legend>
               <div class="chips" role="group" aria-label="风险筛查">
                 <label class="chip"><input type="checkbox" id="selfHarm"><span>近两周出现过「活着没意思 / 想伤害自己」的念头</span></label>
@@ -234,10 +233,31 @@
               </p>
             </fieldset>
 
-            <!-- step5 结果 -->
-            <fieldset class="step-panel" data-step="5">
+            <!-- step4 结果 -->
+            <fieldset class="step-panel" data-step="4">
               <legend>护理建议</legend>
               <div id="reportMount" aria-live="polite"></div>
+
+              <!-- 护理建议反馈（可选） -->
+              <div class="fb-block" id="fbBlock" hidden>
+                <h5 class="fb-title">这份护理建议对你有帮助吗？（可选）</h5>
+                <div class="chips" id="fbChips" role="radiogroup" aria-label="护理建议反馈">
+                  <label class="chip"><input type="radio" name="fbChoice" value="helpful"><span>有帮助</span></label>
+                  <label class="chip"><input type="radio" name="fbChoice" value="not_helpful"><span>没帮助</span></label>
+                  <label class="chip"><input type="radio" name="fbChoice" value="worse"><span>情况加剧</span></label>
+                </div>
+                <p class="notice notice-warn fb-worse" id="fbWorse" hidden>
+                  <b>请优先照顾自己：</b>如果情况正在加剧，建议尽快到妇科或精神心理科门诊评估；情绪上有伤害自己的念头时，请联系全国心理援助热线 <b>12356</b>。本工具不能替代医生诊疗。
+                </p>
+                <label class="field fb-field">
+                  <span class="field-label">护理建议评价（可选）</span>
+                  <textarea id="fbText" rows="2" placeholder="例如：哪条建议对你最有用？希望补充什么内容？"></textarea>
+                </label>
+                <div class="fb-actions">
+                  <button type="button" class="btn btn-primary btn-sm" id="fbSubmit">提交反馈</button>
+                  <span class="fb-done" id="fbDone" hidden>已收到你的反馈，谢谢你 ♥</span>
+                </div>
+              </div>
             </fieldset>
 
             <p class="form-error" id="formError" role="alert" hidden></p>
@@ -255,7 +275,7 @@
             <h4 id="planTitle">第 1 步 · 先说说你的感受</h4>
             <p class="plan-lead" id="planLead">写下今天的一句话，并勾选身体感受。这些信息只用来判断当下的情绪状态。</p>
             <ul class="plan-list" id="planList" aria-label="本次护理计划"></ul>
-            <p class="plan-note">共 5 步，约 2 分钟。答案只保存在你自己的浏览器本地，不会上传服务器。</p>
+            <p class="plan-note">共 4 步，约 2 分钟。答案只保存在你自己的浏览器本地，不会上传服务器。</p>
           </aside>
         </div>
       </div>

@@ -264,6 +264,14 @@ input[type=range]{width:100%;accent-color:var(--teal-600)}
 .diary-row .field-hint{margin-top:0}
 .btn-sm{padding:7px 14px;font-size:13px}
 
+/* 护理建议反馈（可选） */
+.fb-block{margin-top:16px;background:linear-gradient(160deg,#fff,var(--teal-100));border:1px dashed var(--teal-300);border-radius:var(--r-md);padding:18px}
+.fb-title{margin:0 0 12px;font-size:15px;color:var(--teal-700)}
+.fb-worse{margin-top:12px}
+.fb-field{margin:12px 0 0}
+.fb-actions{display:flex;align-items:center;gap:12px;margin-top:12px}
+.fb-done{font-size:13px;color:var(--teal-700);font-weight:600}
+
 /* 自评记录与趋势曲线 */
 .history{
   margin-top:28px;background:var(--card);border:1px solid var(--line);

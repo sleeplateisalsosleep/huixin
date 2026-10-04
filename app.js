@@ -518,11 +518,10 @@
   }
 
   const PLAN_COPY = [
-    { title: '第 1 步 · 先说说你的感受', lead: '写下今天的一句话，并勾选身体感受。这些信息只用来判断你当下的情绪状态。' },
-    { title: '第 2 步 · 识别情绪类型', lead: '选中最接近此刻的情绪标签，并说明持续时间和影响程度，帮助判断负面情绪是否偏多。' },
-    { title: '第 3 步 · 结合身体情况看趋势', lead: '补充周期、睡眠、疼痛与压力信息，用来区分情绪是阶段性波动还是持续困扰。' },
-    { title: '第 4 步 · 风险核对', lead: '这几项是需要优先就医的信号，勾选后会优先给出就医与心理支持建议。' },
-    { title: '第 5 步 · 你的护理建议', lead: '根据前面的判断给出分级护理方案；建议只保存在本地，可随时重新自评。' }
+    { title: '第 1 步 · 先说说你的感受', lead: '写下今天的一句话（可跳过），选中最接近此刻的情绪标签，并勾选身体感受。这些信息只用来判断你当下的情绪状态。' },
+    { title: '第 2 步 · 结合身体情况看趋势', lead: '补充周期、睡眠、疼痛与压力信息，用来区分情绪是阶段性波动还是持续困扰。' },
+    { title: '第 3 步 · 风险核对', lead: '这几项是需要优先就医的信号，勾选后会优先给出就医与心理支持建议。' },
+    { title: '第 4 步 · 你的护理建议', lead: '根据前面的判断给出分级护理方案；建议只保存在本地，可随时重新自评。' }
   ];
 
   function renderPlan(step, path) {
@@ -536,7 +535,7 @@
     if (!list) return;
 
     let items;
-    if (step >= 5 && path && path.length) {
+    if (step >= 4 && path && path.length) {
       items = path.map((id, i) => ({
         text: NODE_LABEL[id] || id,
         state: i === path.length - 1 ? 'current' : 'done'
@@ -582,7 +581,7 @@
     result: null
   };
 
-  const TOTAL_STEPS = 5;
+  const TOTAL_STEPS = 4;
 
   function readStep1() {
     state.diary = ($('#diary').value || '').trim();
@@ -864,9 +863,9 @@
     });
     $('#progressBar').style.width = ((n - 1) / (TOTAL_STEPS - 1) * 100) + '%';
     $('#prevBtn').disabled = n === 1;
-    $('#nextBtn').textContent = n === 4 ? '生成护理建议' : (n === 5 ? '已完成' : '下一步');
-    $('#nextBtn').hidden = n === 5;
-    $('#resetBtn').hidden = n !== 5;
+    $('#nextBtn').textContent = n === 3 ? '生成护理建议' : (n === 4 ? '已完成' : '下一步');
+    $('#nextBtn').hidden = n === 4;
+    $('#resetBtn').hidden = n !== 4;
     $('#formError').hidden = true;
     renderPlan(n, state.result ? state.result.path : null);
   }
@@ -878,19 +877,20 @@
   }
 
   $('#nextBtn').addEventListener('click', () => {
-    if (state.step === 1) { readStep1(); setStep(2); return; }
-    if (state.step === 2) {
+    if (state.step === 1) {
+      readStep1();
       readStep2();
       if (!state.emotions.length) { showError('请至少选择一种此刻的情绪类型（例如「平静」或「焦虑」）。'); return; }
-      setStep(3); return;
+      setStep(2); return;
     }
-    if (state.step === 3) { readStep3(); setStep(4); return; }
-    if (state.step === 4) {
+    if (state.step === 2) { readStep3(); setStep(3); return; }
+    if (state.step === 3) {
       readStep4();
       const res = analyze();
       $('#reportMount').innerHTML = renderReport(res);
       saveHistory(res);
-      setStep(5);
+      resetFb();
+      setStep(4);
       $('#reportMount').scrollIntoView({ behavior: 'smooth', block: 'start' });
       /* 登录状态下刷新历史并自动同步云端 */
       Promise.resolve().then(async () => {
@@ -905,22 +905,62 @@
 
   $('#resetBtn').addEventListener('click', () => {
     $('#reportMount').innerHTML = '';
+    $('#fbBlock').hidden = true;
     state.result = null;
     state.diarySkipped = false;
     setStep(1);
     $('#assessment').scrollIntoView({ behavior: 'smooth', block: 'start' });
   });
 
-  /* 跳过文字日记：不写日记，直接进入情绪标签步骤（仍保留已勾选的身体感受） */
+  /* 跳过文字日记：清空日记并停留在第 1 步，滚动到情绪标签区 */
   $('#skipDiary').addEventListener('click', () => {
     $('#diary').value = '';
     state.diary = '';
-    state.symptoms = $$('input[name="symptom"]:checked').map((i) => i.value);
     state.diarySkipped = true;
-    setStep(2);
+    $('#emoChips').scrollIntoView({ behavior: 'smooth', block: 'center' });
   });
 
   $('#intensity').addEventListener('input', (e) => { $('#intensityOut').textContent = e.target.value; });
+
+  /* ---------------- 护理建议反馈（可选） ---------------- */
+  function resetFb() {
+    const block = $('#fbBlock');
+    if (!block) return;
+    block.hidden = false;
+    $$('input[name="fbChoice"]').forEach((r) => { r.checked = false; });
+    $('#fbText').value = '';
+    $('#fbWorse').hidden = true;
+    $('#fbDone').hidden = true;
+    $('#fbSubmit').disabled = false;
+  }
+
+  $$('input[name="fbChoice"]').forEach((r) => r.addEventListener('change', (e) => {
+    $('#fbWorse').hidden = e.target.value !== 'worse';
+    /* 修改反馈后允许再次提交 */
+    $('#fbDone').hidden = true;
+    $('#fbSubmit').disabled = false;
+  }));
+
+  $('#fbText').addEventListener('input', () => {
+    $('#fbDone').hidden = true;
+    $('#fbSubmit').disabled = false;
+  });
+
+  $('#fbSubmit').addEventListener('click', () => {
+    const choice = ($('input[name="fbChoice"]:checked') || {}).value || '';
+    const fbText = ($('#fbText').value || '').trim();
+    if (!choice && !fbText) { showError('反馈不是必填的：可以先选择一个选项或填写一句评价，再提交。'); return; }
+    $('#formError').hidden = true;
+    /* 写入最近一次自评记录（本地 localStorage），登录时随云端同步一起上传 */
+    const hist = LS.get('hx_history', []);
+    if (hist.length) {
+      hist[0].fb = { choice: choice, text: fbText, at: new Date().toISOString() };
+      LS.set('hx_history', hist.slice(0, HIST_LIMIT));
+    }
+    $('#fbDone').hidden = false;
+    $('#fbSubmit').disabled = true;
+    if (me) cloudSync(true).catch(() => {});
+  });
 
   /* ---------------- 自评历史（最近 30 次） ---------------- */
   const HIST_LIMIT = 30;
