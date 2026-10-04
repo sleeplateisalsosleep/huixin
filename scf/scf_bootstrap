@@ -3,4 +3,8 @@
 # SCF Python 3.10 运行时解释器在 /var/lang/python3，代码解压在 /var/user
 export PYTHONPATH=/var/user:/var/user/vendor:$PYTHONPATH
 export PORT=9000
-exec /var/lang/python3/bin/python3 -u /var/user/scf_server.py
+# 解释器自动探测：优先用运行时 PATH 中的 python3（跟随控制台所选的运行版本），
+# 找不到再回退固定路径，避免切换 3.6/3.10 后调到错误版本
+PY="$(command -v python3 || true)"
+[ -x "$PY" ] || PY=/var/lang/python3/bin/python3
+exec "$PY" -u /var/user/scf_server.py

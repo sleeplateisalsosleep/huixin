@@ -205,7 +205,7 @@
      在 Vercel 部署后端后，把下面替换成你的函数地址，例如 https://huixin-api.vercel.app；
      本地由 Flask 同源托管或 Live Server 代理时保持空串，继续走相对路径。
      也可用 window.HX_API_BASE 在页面里运行时覆盖。 */
-  const REMOTE_API_BASE = 'https://huixin-bsm2.vercel.app';
+  const REMOTE_API_BASE = 'https://1500436464-bo5m9jc0s9.ap-guangzhou.tencentscf.com';
   const API_BASE = (function () {
     const override = String(window.HX_API_BASE || '').replace(/\/+$/, '');
     if (override) return override;
@@ -486,15 +486,24 @@
     assessments: async () => (await api('api/assessments')).assessments
   };
 
-  /* 启动探测：远程后端可用则用远程，否则本地回退 */
+  /* 启动探测：远程后端可用则用远程，否则本地回退
+     云函数（腾讯 SCF 等）冷启动可能耗时数秒，故探测两次：
+     首次 5 秒（命中热实例立即返回），失败后再等 12 秒给冷实例启动。 */
+  async function healthProbe(timeoutMs) {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+    try {
+      const res = await fetch(apiUrl('api/health'), { signal: ctrl.signal });
+      return res.ok;
+    } catch (e) { return false; }
+    finally { clearTimeout(timer); }
+  }
+
   async function bootstrap() {
     initUsers();
-    try {
-      const ctrl = new AbortController();
-      setTimeout(() => ctrl.abort(), 2500);
-      const res = await fetch(apiUrl('api/health'), { signal: ctrl.signal });
-      if (res.ok) svcMode = 'remote';
-    } catch (e) { svcMode = 'local'; }
+    if (await healthProbe(5000) || await healthProbe(12000)) {
+      svcMode = 'remote';
+    }
     svc = svcMode === 'remote' ? remoteSvc : localSvc;
     try { me = await svc.me(); } catch (e) { me = null; }
     if (!me) { token = ''; LS.remove(TOKEN_KEY); }
