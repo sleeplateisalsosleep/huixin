@@ -10,6 +10,7 @@ venv/
 
 # 部署工具
 .vercel/
+dist_scf/
 
 # 编辑器
 .trae/

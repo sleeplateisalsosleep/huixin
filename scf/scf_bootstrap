@@ -1,0 +1,6 @@
+#!/bin/bash
+# 蕙心网 · SCF Web 函数启动文件（必须位于 zip 根目录，具备可执行权限）
+# SCF Python 3.10 运行时解释器在 /var/lang/python3，代码解压在 /var/user
+export PYTHONPATH=/var/user:/var/user/vendor:$PYTHONPATH
+export PORT=9000
+exec /var/lang/python3/bin/python3 -u /var/user/scf_server.py

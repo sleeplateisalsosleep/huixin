@@ -91,7 +91,13 @@ def create_app():
         return os.environ.get(env) or str(file_cfg.get(key, '') or default)
 
     admin_email = cfg('admin_email', 'HX_ADMIN_EMAIL', 'admin@huixin.local')
-    admin_created, cards_added = init_db(hash_password(ADMIN_DEFAULT_PWD), admin_email)
+    # 云函数冷启动优化：库表已由首次部署初始化后，可置 HX_SKIP_AUTO_INIT=1
+    # 跳过每次冷启动的建表/迁移/播种往返（远程库国际链路下可省数秒）。
+    if os.environ.get('HX_SKIP_AUTO_INIT') == '1':
+        admin_created = cards_added = 0
+        print('[蕙心网] HX_SKIP_AUTO_INIT=1，跳过自动建表与播种')
+    else:
+        admin_created, cards_added = init_db(hash_password(ADMIN_DEFAULT_PWD), admin_email)
     if admin_created:
         print('[蕙心网] 已生成管理员账号  admin / %s  邮箱 %s' % (ADMIN_DEFAULT_PWD, admin_email))
     if cards_added:
