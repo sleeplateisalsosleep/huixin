@@ -203,6 +203,17 @@
       const extra = LS.get('hx_cards_extra', []).filter((r) => r.author === name);
       return subs.concat(extra);
     },
+    async submitFeedback(p) {
+      const rows = LS.get('hx_feedback', []);
+      rows.unshift({
+        id: 'f' + Date.now().toString(36),
+        user: currentUser() ? currentUser().name : '未登录用户',
+        choice: p.choice || '', text: p.text || '', assess_at: p.assess_at || '',
+        created_at: new Date().toISOString()
+      });
+      LS.set('hx_feedback', rows.slice(0, 500));
+      return { ok: true };
+    },
     admin: {
       async pending() {
         return LS.get('hx_submissions', []).filter((r) => r.status === 'pending');
@@ -295,6 +306,7 @@
             cards_pending: LS.get('hx_submissions', []).filter((r) => r.status === 'pending').length,
             cards_rejected: LS.get('hx_submissions', []).filter((r) => r.status === 'rejected').length,
             assessments: LS.get('hx_history', []).length,
+            feedback: LS.get('hx_feedback', []).length,
             clicks: clicks.length
           },
           sections: count(clicks.filter((c) => c.type === 'section')),
@@ -305,7 +317,8 @@
             }),
           daily: Object.keys(dmap).sort().map((d) => ({ date: d, count: dmap[d] }))
         };
-      }
+      },
+      async feedback() { return LS.get('hx_feedback', []); }
     },
     async syncAssess(items) { return { inserted: 0, total: LS.get('hx_history', []).length }; },
     async assessments() { return LS.get('hx_history', []); }
@@ -340,6 +353,9 @@
       method: 'POST', body: JSON.stringify(p)
     }),
     myCards: async () => (await api('api/my/cards')).cards,
+    submitFeedback: async (p) => api('api/feedback', {
+      method: 'POST', body: JSON.stringify(p)
+    }),
     admin: {
       pending: async () => (await api('api/admin/cards?status=pending')).cards,
       allCards: async (status) => (await api('api/admin/cards' + (status ? '?status=' + status : ''))).cards,
@@ -355,6 +371,7 @@
       }),
       deleteCard: async (id) => api('api/admin/cards/' + id, { method: 'DELETE' }),
       users: async () => (await api('api/admin/users')).users,
+      feedback: async () => (await api('api/admin/feedback')).feedback,
       stats: async () => api('api/admin/stats')
     },
     syncAssess: async (items) => api('api/assessments/sync', {
@@ -951,7 +968,7 @@
     const fbText = ($('#fbText').value || '').trim();
     if (!choice && !fbText) { showError('反馈不是必填的：可以先选择一个选项或填写一句评价，再提交。'); return; }
     $('#formError').hidden = true;
-    /* 写入最近一次自评记录（本地 localStorage），登录时随云端同步一起上传 */
+    /* 1. 写入最近一次自评记录（本地 localStorage），历史页可回顾 */
     const hist = LS.get('hx_history', []);
     if (hist.length) {
       hist[0].fb = { choice: choice, text: fbText, at: new Date().toISOString() };
@@ -959,7 +976,11 @@
     }
     $('#fbDone').hidden = false;
     $('#fbSubmit').disabled = true;
-    if (me) cloudSync(true).catch(() => {});
+    /* 2. 上传到后端反馈表：登录用户关联账号，未登录也允许提交（记录为匿名反馈） */
+    svc.submitFeedback({
+      choice: choice, text: fbText,
+      assess_at: (hist[0] && hist[0].at) || ''
+    }).catch(() => { /* 反馈上传失败不影响本地记录 */ });
   });
 
   /* ---------------- 自评历史（最近 30 次） ---------------- */
@@ -2221,6 +2242,7 @@
       if (adminTab === 'review') await renderAdminReview(box);
       else if (adminTab === 'cards') await renderAdminCards(box);
       else if (adminTab === 'users') await renderAdminUsers(box);
+      else if (adminTab === 'feedback') await renderAdminFeedback(box);
       else await renderAdminStats(box);
     } catch (e) {
       box.innerHTML = '<p class="form-error">加载失败：' + esc(e.message) + '</p>';
@@ -2437,6 +2459,35 @@
       '</tbody></table>';
   }
 
+  /* ---------- 用户反馈 ---------- */
+  const FB_LABEL = { helpful: '有帮助', not_helpful: '没帮助', worse: '情况加剧' };
+  const FB_TAG = { helpful: 'tag-ok', not_helpful: 'tag-warn', worse: 'tag-bad' };
+
+  async function renderAdminFeedback(box) {
+    let rows = [];
+    try { rows = await svc.admin.feedback(); } catch (e) { /* */ }
+    box.innerHTML =
+      '<div class="review-actions" style="margin:0 0 14px">' +
+        '<span class="admin-muted">共 ' + rows.length +
+        ' 条反馈 · 用户在护理建议生成后自愿提交（非必填，未登录用户也可提交）</span>' +
+      '</div>' +
+      (rows.length ?
+        '<table class="admin-table"><thead><tr>' +
+          '<th>提交时间</th><th>用户</th><th>反馈选项</th><th>护理建议评价</th><th>关联自评</th>' +
+        '</tr></thead><tbody>' +
+        rows.map((r) =>
+          '<tr><td>' + esc(fmtDT(r.created_at)) + '</td>' +
+          '<td>' + esc(r.user || '未登录用户') + '</td>' +
+          '<td>' + (r.choice
+            ? '<span class="tag ' + (FB_TAG[r.choice] || 'tag-soft') + '">' +
+              esc(FB_LABEL[r.choice] || r.choice) + '</span>'
+            : '<span class="admin-muted">—</span>') + '</td>' +
+          '<td>' + (r.text ? esc(r.text) : '<span class="admin-muted">—</span>') + '</td>' +
+          '<td class="admin-muted">' + (r.assess_at ? esc(fmtDT(r.assess_at)) : '—') + '</td></tr>').join('') +
+        '</tbody></table>'
+        : '<p class="admin-muted">暂无用户反馈。用户完成护理建议后可自愿提交。</p>');
+  }
+
   /* ---------- 数据统计 ---------- */
   function barsHtml(rows, labelKey) {
     const max = Math.max.apply(null, [1].concat(rows.map((r) => r.count)));
@@ -2459,7 +2510,7 @@
     const mini = [
       [t.users, '注册用户'], [t.cards_approved, '已发布卡片'],
       [t.cards_pending, '待审投稿'], [t.assessments, '云端自评记录'],
-      [t.clicks, '总点击量']
+      [t.feedback || 0, '用户反馈'], [t.clicks, '总点击量']
     ];
     const secRows = s.sections.map((r) => ({
       target: SECTION_LABEL[r.target] || r.target, count: r.count

@@ -53,9 +53,18 @@ CREATE TABLE IF NOT EXISTS assessments (
   created_at TEXT NOT NULL,
   UNIQUE (user_id, client_at)
 );
+CREATE TABLE IF NOT EXISTS feedback (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id    INTEGER REFERENCES users(id),
+  choice     TEXT NOT NULL DEFAULT '',
+  text       TEXT NOT NULL DEFAULT '',
+  assess_at  TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL
+);
 CREATE INDEX IF NOT EXISTS idx_clicks_lookup ON clicks(type, target);
 CREATE INDEX IF NOT EXISTS idx_clicks_time ON clicks(created_at);
 CREATE INDEX IF NOT EXISTS idx_assess_user ON assessments(user_id);
+CREATE INDEX IF NOT EXISTS idx_feedback_time ON feedback(created_at);
 CREATE INDEX IF NOT EXISTS idx_cards_status ON cards(status);
 """
 

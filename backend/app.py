@@ -4,6 +4,7 @@
 - 核心功能二科普卡内容管理与投稿审核
 - 点击量数据统计
 - 自评数据云端同步
+- 护理建议用户反馈收集（登录 / 匿名均可）与管理员查看
 - 同端口托管前端静态文件（免跨域）
 """
 import json
@@ -229,6 +230,30 @@ def create_app():
         get_db().commit()
         return jsonify({'ok': True})
 
+    # ================= 用户反馈（非必填，登录与否均可） =================
+    FB_CHOICES = ('helpful', 'not_helpful', 'worse')
+
+    @app.post('/api/feedback')
+    def add_feedback():
+        p = request.get_json(silent=True) or {}
+        choice = str(p.get('choice', '')).strip()
+        text = str(p.get('text', '')).strip()
+        assess_at = str(p.get('assess_at', '')).strip()
+        if choice and choice not in FB_CHOICES:
+            return err('反馈选项不正确')
+        if len(text) > 200:
+            return err('护理建议评价不超过 200 字')
+        if not choice and not text:
+            return err('请选择反馈选项或填写一句评价')
+        u = current()
+        db = get_db()
+        db.execute(
+            """INSERT INTO feedback (user_id, choice, text, assess_at, created_at)
+               VALUES (?,?,?,?,?)""",
+            (u['id'] if u else None, choice, text, assess_at[:40], now_iso()))
+        db.commit()
+        return jsonify({'ok': True}), 201
+
     # ================= 投稿（登录用户） =================
     @app.post('/api/cards/submit')
     def submit_card():
@@ -369,6 +394,22 @@ def create_app():
         out = [dict(user_public(r), assess_count=r['assess_n']) for r in rows]
         return jsonify({'users': out})
 
+    @app.get('/api/admin/feedback')
+    def admin_feedback():
+        """查看所有用户反馈（最新在前），未登录提交者显示为「未登录用户」。"""
+        require_admin()
+        rows = get_db().execute(
+            """SELECT f.id, f.choice, f.text, f.assess_at, f.created_at,
+                      u.name AS user_name
+               FROM feedback f LEFT JOIN users u ON u.id = f.user_id
+               ORDER BY f.id DESC""").fetchall()
+        return jsonify({'feedback': [
+            {'id': r['id'],
+             'user': r['user_name'] if r['user_name'] else '未登录用户',
+             'choice': r['choice'], 'text': r['text'],
+             'assess_at': r['assess_at'], 'created_at': r['created_at']}
+            for r in rows]})
+
     @app.get('/api/admin/stats')
     def admin_stats():
         require_admin()
@@ -395,6 +436,7 @@ def create_app():
             'cards_rejected': db.execute(
                 "SELECT COUNT(*) n FROM cards WHERE status='rejected'").fetchone()['n'],
             'assessments': db.execute('SELECT COUNT(*) n FROM assessments').fetchone()['n'],
+            'feedback': db.execute('SELECT COUNT(*) n FROM feedback').fetchone()['n'],
             'clicks': db.execute('SELECT COUNT(*) n FROM clicks').fetchone()['n'],
         }
         return jsonify({
