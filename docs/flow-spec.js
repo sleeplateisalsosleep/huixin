@@ -71,7 +71,7 @@
     trend: { rule: '是：继续结合健康特征预测情绪走向。', impl: '进入第 3 步采集周期、睡眠、疼痛、压力。' },
     heathfeat: { rule: '把周期阶段、睡眠、疼痛、压力与情绪做匹配。', impl: 'dayOfCycle 推算周期第几天与阶段，与睡眠/疼痛/压力加权匹配。' },
     trendCheck: { rule: '持续 ≥ 3 天或反复两周以上，或影响 ≥ 7 且压力大；高危项、影响 ≥ 9、重度评分 ≥ 6 也直接进入。', impl: 'persistent || forceSevere 判定为持续负面情绪。' },
-    suggest: { rule: '否：给出正念冥想与呼吸练习建议。', impl: 'branch = "suggest"，风险等级记为低。' },
+    suggest: { rule: '否：给出正念冥想与呼吸练习建议；若为中风险则追加连续记录、温和运动与复评提醒。', impl: 'branch = "suggest"，level = riskLevel === "mid" ? "mid" : "mild"。' },
     severe: { rule: '是：判定为情绪重度异常，启动健康风险评估。', impl: 'branch = "severe"，计算 severeScore 与风险等级。' },
     risk: { rule: '生成健康风险评估报告，明确风险等级与建议层级。', impl: '第 5 步输出五段式报告（含风险评分条）。' },
     medCheck: { rule: '风险等级为低 / 中且无自伤念头时，进入正念冥想干预。', impl: 'meditation = riskLevel !== "high" && !psychFlag。' },
