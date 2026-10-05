@@ -2254,6 +2254,12 @@
   let carIndex = 0;
   let carPlaying = true;
   let carTimer = null;
+  let carAnimating = false;
+  let carPending = null;
+  let carDrag = null;
+  let carSuppressClick = false;
+  let carAnimTimer = null;
+  const carStageEl = $('#carStage');
 
   function kbCats() {
     const seen = [];
@@ -2313,37 +2319,87 @@
   }
 
   function advanceCar(dir) {
-    const list = filteredCards();
-    if (!list.length) return;
-    carIndex = (carIndex + dir + list.length) % list.length;
-    renderCarousel(list);
+    goTo(carIndex + dir, dir);
   }
 
-  function renderCarousel(list) {
-    const stage = $('#carStage');
-    const k = list[carIndex];
-    if (!k) {
-      stage.innerHTML = '';
-      $('#carDots').innerHTML = '';
-      $('#carPos').textContent = '';
-      return;
-    }
-    stage.innerHTML =
-      '<button type="button" class="car-card" data-id="' + esc(String(k.id)) + '">' +
+  function carCardHtml(k) {
+    return '<button type="button" class="car-card" data-id="' + esc(String(k.id)) + '">' +
       '<span class="cat">' + esc(k.cat) + '</span>' +
       '<h3>' + esc(k.title) + '</h3>' +
       '<p>' + esc(k.summary) + '</p>' +
       '<span class="more">查看详情 →</span>' +
       '</button>';
-    $('.car-card', stage).addEventListener('click', () => openArticle(k.id));
+  }
 
+  function setTrackX(v, anim) {
+    const track = $('#carTrack');
+    if (!track) return;
+    track.classList.toggle('is-dragging', !anim);
+    track.style.transform = 'translateX(' + v + ')';
+  }
+
+  function buildTrack(list) {
+    const stage = $('#carStage');
+    const n = list.length;
+    stage.innerHTML =
+      '<div class="car-track" id="carTrack">' +
+      '<div class="car-slot">' + (n > 1 ? carCardHtml(list[(carIndex - 1 + n) % n]) : '') + '</div>' +
+      '<div class="car-slot">' + carCardHtml(list[carIndex]) + '</div>' +
+      '<div class="car-slot">' + (n > 1 ? carCardHtml(list[(carIndex + 1) % n]) : '') + '</div>' +
+      '</div>';
+    setTrackX('-100%', false);
+  }
+
+  function onCarEnd(e) {
+    if (e.target === e.currentTarget) finishCar();
+  }
+
+  function finishCar() {
+    if (!carPending) return;
+    if (carAnimTimer) { clearTimeout(carAnimTimer); carAnimTimer = null; }
+    const track = $('#carTrack');
+    if (track) track.removeEventListener('transitionend', onCarEnd);
+    carIndex = carPending.target;
+    carPending = null;
+    carAnimating = false;
+    renderCarousel(filteredCards());
+  }
+
+  function goTo(target, dir) {
+    const list = filteredCards();
+    const n = list.length;
+    if (n < 2 || carDrag) return;
+    target = ((target % n) + n) % n;
+    if (carAnimating) finishCar();
+    if (target === carIndex) { setTrackX('-100%', true); return; }
+    dir = dir || (target > carIndex ? 1 : -1);
+    const track = $('#carTrack');
+    const slots = $$('#carTrack .car-slot');
+    if (dir > 0) slots[2].innerHTML = carCardHtml(list[target]);
+    else slots[0].innerHTML = carCardHtml(list[target]);
+    carAnimating = true;
+    carPending = { target: target };
+    track.addEventListener('transitionend', onCarEnd);
+    void track.offsetWidth;
+    setTrackX(dir > 0 ? '-200%' : '0%', true);
+    carAnimTimer = setTimeout(finishCar, 600);
+  }
+
+  function renderCarousel(list) {
+    const k = list[carIndex];
+    if (!k) {
+      $('#carStage').innerHTML = '';
+      $('#carDots').innerHTML = '';
+      $('#carPos').textContent = '';
+      return;
+    }
+    buildTrack(list);
     $('#carDots').innerHTML = list.map((x, i) =>
       '<button type="button" data-i="' + i + '"' +
       (i === carIndex ? ' class="is-on" aria-label="第 ' + (i + 1) + ' 张（当前）"' :
                         ' aria-label="第 ' + (i + 1) + ' 张"') + '></button>').join('');
     $$('#carDots button').forEach((b) => b.addEventListener('click', () => {
-      carIndex = Number(b.getAttribute('data-i'));
-      renderCarousel(list);
+      goTo(Number(b.getAttribute('data-i')));
       startAuto();
     }));
     $('#carPos').textContent = '第 ' + (carIndex + 1) + ' / ' + list.length + ' 张';
@@ -2450,6 +2506,45 @@
   });
   $('#carPrev').addEventListener('click', () => advanceCar(-1));
   $('#carNext').addEventListener('click', () => advanceCar(1));
+  carStageEl.addEventListener('click', (e) => {
+    if (carSuppressClick) { carSuppressClick = false; return; }
+    const btn = e.target.closest('.car-card');
+    if (btn && btn.getAttribute('data-id')) openArticle(btn.getAttribute('data-id'));
+  });
+  carStageEl.addEventListener('pointerdown', (e) => {
+    if (filteredCards().length < 2) return;
+    if (e.button !== undefined && e.button !== 0) return;
+    if (carAnimating) finishCar();
+    carSuppressClick = false;
+    carDrag = { id: e.pointerId, x0: e.clientX, dx: 0, w: carStageEl.clientWidth || 1, moved: false, btn: e.target.closest ? e.target.closest('.car-card') : null };
+    carStageEl.setPointerCapture(e.pointerId);
+  });
+  carStageEl.addEventListener('pointermove', (e) => {
+    if (!carDrag || e.pointerId !== carDrag.id) return;
+    carDrag.dx = e.clientX - carDrag.x0;
+    if (Math.abs(carDrag.dx) > 6) carDrag.moved = true;
+    setTrackX('calc(-100% + ' + carDrag.dx + 'px)', false);
+  });
+  function endCarDrag(e) {
+    if (!carDrag || (e.pointerId !== undefined && e.pointerId !== carDrag.id)) return;
+    const dx = carDrag.dx;
+    const w = carDrag.w;
+    const moved = carDrag.moved;
+    const btn = carDrag.btn;
+    const n = filteredCards().length;
+    carDrag = null;
+    carSuppressClick = moved;
+    if (!moved) {
+      if (btn && btn.getAttribute('data-id')) openArticle(btn.getAttribute('data-id'));
+      return;
+    }
+    const threshold = Math.min(80, w * 0.18);
+    if (dx < -threshold && n > 1) goTo(carIndex + 1, 1);
+    else if (dx > threshold && n > 1) goTo(carIndex - 1, -1);
+    else setTrackX('-100%', true);
+  }
+  carStageEl.addEventListener('pointerup', endCarDrag);
+  carStageEl.addEventListener('pointercancel', endCarDrag);
   $('#carPlay').addEventListener('click', () => {
     carPlaying = !carPlaying;
     if (carPlaying) startAuto(); else stopAuto();
