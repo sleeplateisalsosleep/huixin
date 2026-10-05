@@ -3539,6 +3539,22 @@
     });
   }
 
+  /* 页眉「每日日记」入口：滚动到日记区并展开表单 */
+  (function bindNavMoodDiary() {
+    const navDiary = $('#navMoodDiary');
+    if (!navDiary) return;
+    navDiary.addEventListener('click', () => {
+      const section = $('#moodDiary');
+      const form = $('#moodForm');
+      const toggleBtn = $('#toggleMoodForm');
+      if (form && form.hidden) {
+        form.hidden = false;
+        if (toggleBtn) toggleBtn.textContent = '收起';
+      }
+      if (section) section.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+  })();
+
   /* 冥想体验反馈面板 */
   function openMeditationFeedback() {
     const modal = $('#meditationFeedback');
