@@ -82,10 +82,11 @@ button,input,select,textarea{font:inherit;color:inherit}
 .brand-text b{font-size:20px;letter-spacing:.08em;color:var(--teal-900)}
 .brand-text small{font-size:11px;color:var(--muted);letter-spacing:.05em}
 .nav{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
-.nav a{
+.nav a,.nav button{
   padding:8px 12px;border-radius:999px;font-size:14px;color:var(--ink-2);
+  font-family:inherit;border:0;background:none;cursor:pointer;text-decoration:none;
 }
-.nav a:hover{background:var(--teal-100);color:var(--teal-900);text-decoration:none}
+.nav a:hover,.nav button:hover{background:var(--teal-100);color:var(--teal-900);text-decoration:none}
 .nav-cta{background:linear-gradient(120deg,var(--teal-600),var(--rose-600));color:#fff!important}
 .nav-cta:hover{filter:brightness(1.05)}
 
@@ -218,10 +219,11 @@ input[type=range]{width:100%;accent-color:var(--teal-600)}
 .chip{
   display:inline-flex;align-items:center;gap:8px;padding:9px 14px;border-radius:99px;
   border:1px solid var(--line);background:#fff;cursor:pointer;font-size:14px;transition:.15s;
+  font-family:inherit;color:inherit;
 }
 .chip:hover{border-color:var(--teal-300);background:var(--teal-100)}
 .chip input{position:absolute;opacity:0;width:0;height:0}
-.chip:has(input:checked){border-color:var(--teal-600);background:var(--teal-100);color:var(--teal-900);font-weight:600}
+.chip.is-on,.chip:has(input:checked){border-color:var(--teal-600);background:var(--teal-100);color:var(--teal-900);font-weight:600}
 .chip:has(input:focus-visible){outline:3px solid var(--teal-500);outline-offset:2px}
 .chips-lg .chip{font-size:15px;padding:11px 18px}
 .emo{display:inline-flex;align-items:center;gap:7px}
@@ -551,7 +553,7 @@ button.auth-name:hover{background:var(--teal-100);color:var(--teal-700)}
   .brand-text small{display:none}
   .nav{order:3;width:100%;gap:4px;flex-wrap:nowrap;overflow-x:auto;padding-bottom:2px;-webkit-overflow-scrolling:touch;scrollbar-width:none}
   .nav::-webkit-scrollbar{display:none}
-  .nav a{font-size:13px;padding:7px 10px;white-space:nowrap;flex:0 0 auto}
+  .nav a,.nav button{font-size:13px;padding:7px 10px;white-space:nowrap;flex:0 0 auto}
   .auth-area{width:auto;margin-left:auto}
   .auth-name{max-width:110px;overflow:hidden;text-overflow:ellipsis}
   /* 输入防 iOS 聚焦缩放 */
