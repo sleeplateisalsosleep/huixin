@@ -76,6 +76,29 @@ CREATE INDEX IF NOT EXISTS idx_assess_user ON assessments(user_id);
 CREATE INDEX IF NOT EXISTS idx_feedback_time ON feedback(created_at);
 CREATE INDEX IF NOT EXISTS idx_cards_status ON cards(status);
 CREATE INDEX IF NOT EXISTS idx_email_codes_email ON email_codes(email);
+CREATE TABLE IF NOT EXISTS mood_summaries (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id       INTEGER NOT NULL REFERENCES users(id),
+  client_date   TEXT NOT NULL,
+  score         INTEGER NOT NULL DEFAULT 5,
+  cycle_state   TEXT NOT NULL DEFAULT '',
+  sleep_quality TEXT NOT NULL DEFAULT '',
+  exercise      TEXT NOT NULL DEFAULT '',
+  created_at    TEXT NOT NULL,
+  UNIQUE (user_id, client_date)
+);
+CREATE TABLE IF NOT EXISTS meditation_summaries (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id     INTEGER NOT NULL REFERENCES users(id),
+  client_date TEXT NOT NULL,
+  mode        TEXT NOT NULL DEFAULT '478',
+  duration    INTEGER NOT NULL DEFAULT 0,
+  relax_score INTEGER NOT NULL DEFAULT 3,
+  created_at  TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_mood_summary_user ON mood_summaries(user_id);
+CREATE INDEX IF NOT EXISTS idx_mood_summary_date ON mood_summaries(client_date);
+CREATE INDEX IF NOT EXISTS idx_meditation_summary_user ON meditation_summaries(user_id);
 """
 
 

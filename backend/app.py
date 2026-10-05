@@ -721,6 +721,8 @@ def create_app():
             'assessments': db.execute('SELECT COUNT(*) n FROM assessments').fetchone()['n'],
             'feedback': db.execute('SELECT COUNT(*) n FROM feedback').fetchone()['n'],
             'clicks': db.execute('SELECT COUNT(*) n FROM clicks').fetchone()['n'],
+            'mood_summaries': db.execute('SELECT COUNT(*) n FROM mood_summaries').fetchone()['n'],
+            'meditation_summaries': db.execute('SELECT COUNT(*) n FROM meditation_summaries').fetchone()['n'],
         }
         return jsonify({
             'totals': totals,
@@ -778,6 +780,80 @@ def create_app():
             except json.JSONDecodeError:
                 continue
         return jsonify({'assessments': out, 'total': len(out)})
+
+    # ================= 情绪日记与冥想汇总云端同步 =================
+    @app.post('/api/mood/summary')
+    def post_mood_summary():
+        u = require_user()
+        p = request.get_json(silent=True) or {}
+        client_date = str(p.get('date', '')).strip()
+        if not client_date:
+            return err('缺少 date 字段')
+        db = get_db()
+        db.execute(
+            """INSERT INTO mood_summaries
+               (user_id, client_date, score, cycle_state, sleep_quality, exercise, created_at)
+               VALUES (?,?,?,?,?,?,?)
+               ON CONFLICT(user_id, client_date) DO UPDATE SET
+                 score = excluded.score,
+                 cycle_state = excluded.cycle_state,
+                 sleep_quality = excluded.sleep_quality,
+                 exercise = excluded.exercise""",
+            (u['id'], client_date,
+             int(p.get('score', 5)),
+             str(p.get('cycleState', '')),
+             str(p.get('sleepQuality', '')),
+             str(p.get('exercise', '')),
+             now_iso()))
+        db.commit()
+        return jsonify({'ok': True})
+
+    @app.get('/api/mood/summary')
+    def get_mood_summary():
+        u = require_user()
+        rows = get_db().execute(
+            'SELECT client_date, score, cycle_state, sleep_quality, exercise FROM mood_summaries'
+            ' WHERE user_id = ? ORDER BY client_date DESC',
+            (u['id'],)).fetchall()
+        return jsonify({'summaries': [
+            {'date': r['client_date'], 'score': r['score'],
+             'cycleState': r['cycle_state'], 'sleepQuality': r['sleep_quality'],
+             'exercise': r['exercise']} for r in rows], 'total': len(rows)})
+
+    @app.post('/api/meditation/summary')
+    def post_meditation_summary():
+        u = require_user()
+        p = request.get_json(silent=True) or {}
+        client_date = str(p.get('date', '')).strip()
+        if not client_date:
+            return err('缺少 date 字段')
+        db = get_db()
+        db.execute(
+            """INSERT INTO meditation_summaries
+               (user_id, client_date, mode, duration, relax_score, created_at)
+               VALUES (?,?,?,?,?,?)
+               ON CONFLICT DO UPDATE SET
+                 mode = excluded.mode,
+                 duration = excluded.duration,
+                 relax_score = excluded.relax_score""",
+            (u['id'], client_date,
+             str(p.get('mode', '478')),
+             int(p.get('duration', 0)),
+             int(p.get('relaxScore', 3)),
+             now_iso()))
+        db.commit()
+        return jsonify({'ok': True})
+
+    @app.get('/api/meditation/summary')
+    def get_meditation_summary():
+        u = require_user()
+        rows = get_db().execute(
+            'SELECT client_date, mode, duration, relax_score FROM meditation_summaries'
+            ' WHERE user_id = ? ORDER BY client_date DESC',
+            (u['id'],)).fetchall()
+        return jsonify({'summaries': [
+            {'date': r['client_date'], 'mode': r['mode'],
+             'duration': r['duration'], 'relaxScore': r['relax_score']} for r in rows], 'total': len(rows)})
 
     # ================= 静态文件托管 =================
     @app.after_request

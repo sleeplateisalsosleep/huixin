@@ -21,8 +21,11 @@
     <nav class="nav" aria-label="主导航">
       <a href="#feature1">核心功能一 · 情绪护理</a>
       <a href="#feature2">核心功能二 · 生理科普</a>
+      <a href="#tcm-fitness">古法健身</a>
       <a href="#tools">周期工具</a>
       <a href="#admin" id="adminLink" hidden>后台管理</a>
+      <button type="button" class="nav-cta" id="navMeditation">正念冥想</button>
+      <button type="button" class="nav-cta" id="navMoodDiary">每日日记</button>
       <a class="nav-cta" href="#assessment">开始情绪自评</a>
     </nav>
     <div class="auth-area" id="authArea"></div>
@@ -97,7 +100,7 @@
         <div class="assess-head">
           <div>
             <h3>互动护理流程 · 情绪自评</h3>
-            <p class="muted">共 4 步，约 2 分钟；答案只保存在你自己的浏览器本地，不会上传服务器。</p>
+            <p class="muted">共 4 步，约 2 分钟；自评与日记的详细内容保存在本地，登录后仅同步汇总结果到云端。</p>
           </div>
           <div class="assess-progress" aria-hidden="true"><span id="progressBar"></span></div>
         </div>
@@ -280,6 +283,62 @@
         </div>
       </div>
 
+      <!-- ---------- 每日情绪日记 ---------- -->
+      <div class="history mood-diary" id="moodDiary">
+        <div class="history-head">
+          <div>
+            <h3>每日情绪日记</h3>
+            <p class="muted">轻量记录每天的情绪、身体与生活状态；详细内容仅保存在本地，登录后云端只同步评分等汇总数据。</p>
+          </div>
+          <div class="history-actions">
+            <button type="button" class="btn btn-ghost btn-sm" id="toggleMoodForm">写日记</button>
+          </div>
+        </div>
+        <form class="mood-form" id="moodForm" hidden novalidate>
+          <div class="field">
+            <span class="field-label">今天的情绪评分（1 很低落 · 10 很愉悦）<b id="moodScoreVal">5</b></span>
+            <input type="range" id="moodScore" min="1" max="10" value="5" step="1">
+          </div>
+          <div class="field">
+            <span class="field-label">情绪标签（可多选）</span>
+            <div class="chips" id="moodEmotions"></div>
+          </div>
+          <div class="field">
+            <span class="field-label">身体感受（可多选）</span>
+            <div class="chips" id="moodSymptoms"></div>
+          </div>
+          <div class="field">
+            <span class="field-label">经期状态</span>
+            <div class="chips" id="moodCycle"></div>
+          </div>
+          <div class="field">
+            <span class="field-label">睡眠质量</span>
+            <div class="chips" id="moodSleep"></div>
+          </div>
+          <div class="field">
+            <span class="field-label">昨晚睡眠时长（小时）</span>
+            <input type="number" id="moodSleepHours" min="0" max="24" step="0.5" placeholder="例如 7.5">
+          </div>
+          <div class="field">
+            <span class="field-label">饮食情况</span>
+            <div class="chips" id="moodDiet"></div>
+          </div>
+          <div class="field">
+            <span class="field-label">运动记录</span>
+            <div class="chips" id="moodExercise"></div>
+          </div>
+          <div class="field">
+            <span class="field-label">文字日记（可选，仅存本地）</span>
+            <textarea id="moodText" rows="3" placeholder="今天有什么想记录的？"></textarea>
+          </div>
+          <div class="form-actions">
+            <button type="submit" class="btn btn-primary">保存今日日记</button>
+            <button type="button" class="btn btn-ghost" id="cancelMoodForm">取消</button>
+          </div>
+        </form>
+        <p class="muted mood-diary-hint" id="moodDiaryHint"></p>
+      </div>
+
       <!-- ---------- 自评记录与趋势曲线 ---------- -->
       <div class="history" id="history">
         <div id="historyInner">
@@ -297,6 +356,14 @@
           <div class="trend-chart" id="trendChart"></div>
           <p class="muted history-empty" id="historyEmpty" hidden>还没有自评记录。完成一次情绪自评后，这里会出现痛苦与情绪趋势曲线和历史记录。</p>
           <ul class="history-list" id="historyList"></ul>
+
+          <div class="history-subhead">
+            <h4>情绪日记趋势</h4>
+            <p class="muted">来自每日日记的情绪评分曲线（本地 + 云端汇总合并）。</p>
+          </div>
+          <div class="trend-chart mood-chart" id="moodChart"></div>
+          <p class="muted history-empty" id="moodEmpty" hidden>还没有日记记录。点击上方「写日记」记录今天，登录后趋势可跨设备查看。</p>
+          <ul class="history-list mood-list" id="moodList"></ul>
         </div>
         <div class="history-lock" id="historyLock" hidden>
           <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="10" width="14" height="10" rx="2" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M8 10V7a4 4 0 0 1 8 0v3" fill="none" stroke="currentColor" stroke-width="1.8"/></svg>
@@ -349,6 +416,22 @@
         </div>
       </div>
       <p class="kb-empty muted" id="kbEmpty" hidden>没有匹配的知识条目，换个关键词试试。</p>
+    </div>
+  </section>
+
+  <!-- ================= 中医古法健身调理区 ================= -->
+  <section class="section" id="tcm-fitness">
+    <div class="wrap">
+      <header class="section-head">
+        <p class="eyebrow">中医古法健身</p>
+        <h2>日常调理 · 温和运动</h2>
+        <p class="section-sub">
+          八段锦、五禽戏、经络拍打等古法健身方式，适合经期与日常温和调理。
+          打卡记录仅保存在本地浏览器，不上传服务器。
+        </p>
+      </header>
+      <div class="fitness-grid" id="fitnessGrid"></div>
+      <p class="muted fitness-hint">点击「今日打卡」记录练习，最近 7 天打卡情况会显示在卡片下方。</p>
     </div>
   </section>
 
@@ -459,6 +542,61 @@
 </footer>
 
 <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+
+<!-- 正念冥想引导 -->
+<div class="meditation-overlay" id="meditationOverlay" hidden>
+  <div class="meditation-box">
+    <button type="button" class="meditation-close" id="meditationClose" aria-label="退出冥想">×</button>
+    <div class="meditation-mode" id="meditationMode">
+      <button type="button" class="chip is-on" data-mode="478">4-7-8 呼吸</button>
+      <button type="button" class="chip" data-mode="abdominal">腹式呼吸</button>
+    </div>
+    <div class="breath-stage">
+      <div class="breath-circle" id="breathCircle"></div>
+      <div class="breath-text" id="breathText">准备</div>
+      <div class="breath-count" id="breathCount"></div>
+    </div>
+    <div class="meditation-controls">
+      <button type="button" class="btn btn-primary" id="meditationStart">开始引导</button>
+      <button type="button" class="btn btn-ghost" id="meditationMute" aria-pressed="false">静音</button>
+    </div>
+    <p class="muted meditation-tip">建议找一个安静舒适的位置，跟随圆圈缩放与文字引导进行呼吸。</p>
+  </div>
+</div>
+
+<!-- 冥想体验反馈 -->
+<div class="modal" id="meditationFeedback" hidden>
+  <div class="modal-mask" data-mf-close></div>
+  <div class="modal-panel" role="dialog" aria-modal="true" aria-labelledby="mfTitle">
+    <button type="button" class="modal-close" data-mf-close aria-label="关闭">×</button>
+    <div id="mfBody">
+      <h3 id="mfTitle">冥想体验反馈</h3>
+      <p class="muted">本次冥想感受如何？详细内容仅保存在本地，云端只同步模式、时长与放松评分。</p>
+      <form id="meditationFeedbackForm" novalidate>
+        <div class="field">
+          <span class="field-label">放松程度（1 完全没放松 · 5 非常放松）<b id="mfRelaxVal">3</b></span>
+          <input type="range" id="mfRelax" min="1" max="5" value="3" step="1">
+        </div>
+        <div class="field">
+          <span class="field-label">身体感受变化（可多选）</span>
+          <div class="chips" id="mfBodyChips"></div>
+        </div>
+        <div class="field">
+          <span class="field-label">情绪变化（可多选）</span>
+          <div class="chips" id="mfMoodChips"></div>
+        </div>
+        <div class="field">
+          <span class="field-label">简短感受（可选）</span>
+          <textarea id="mfNote" rows="2" placeholder="例如：做完感觉肩膀轻松多了"></textarea>
+        </div>
+        <div class="form-actions">
+          <button type="submit" class="btn btn-primary">保存反馈</button>
+          <button type="button" class="btn btn-ghost" id="mfSkip">跳过</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
 
 <!-- 知识详情 -->
 <div class="modal" id="modal" hidden>

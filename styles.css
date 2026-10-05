@@ -588,6 +588,53 @@ button.auth-name:hover{background:var(--teal-100);color:var(--teal-700)}
   .pred-grid{grid-template-columns:1fr 1fr}
   .grid-2{grid-template-columns:1fr}
 }
+
+/* ================= 每日情绪日记 ================= */
+.mood-diary{margin-top:20px}
+.mood-form{display:grid;grid-template-columns:repeat(2,1fr);gap:14px 18px;margin-top:14px;padding:16px;background:var(--surface-muted);border-radius:var(--radius)}
+.mood-form .field{display:flex;flex-direction:column;gap:6px}
+.mood-form .field-label{font-size:13px;color:var(--text-muted)}
+.mood-form .field-label b{color:var(--brand);margin-left:6px}
+.mood-form input[type="range"]{width:100%}
+.mood-form .chips{display:flex;flex-wrap:wrap;gap:6px}
+.mood-form .chip{padding:6px 12px;font-size:13px}
+.mood-form textarea{resize:vertical}
+.form-actions{display:flex;gap:10px;margin-top:8px}
+.mood-diary-hint{margin-top:10px;font-size:13px}
+.history-subhead{margin-top:28px;padding-top:20px;border-top:1px solid var(--border)}
+.history-subhead h4{margin:0 0 4px;font-size:16px}
+.mood-chart{min-height:180px}
+.mood-list{margin-top:12px}
+
+/* ================= 正念冥想 ================= */
+.meditation-overlay{position:fixed;inset:0;background:rgba(0,0,0,.72);display:flex;align-items:center;justify-content:center;z-index:1000;padding:16px}
+.meditation-box{position:relative;width:min(640px,94vw);background:var(--surface);border-radius:20px;padding:28px 24px;text-align:center;box-shadow:0 20px 60px rgba(0,0,0,.3)}
+.meditation-close{position:absolute;top:14px;right:14px;width:36px;height:36px;border:none;border-radius:50%;background:var(--surface-muted);color:var(--text);font-size:22px;cursor:pointer;line-height:1}
+.meditation-close:hover{background:var(--border)}
+.meditation-mode{display:flex;gap:10px;justify-content:center;margin-bottom:20px;flex-wrap:wrap}
+.meditation-mode .chip{padding:8px 16px;font-size:14px;cursor:pointer}
+.breath-stage{position:relative;height:280px;display:flex;align-items:center;justify-content:center;margin:10px 0}
+.breath-circle{width:120px;height:120px;border-radius:50%;background:radial-gradient(circle at 35% 35%, rgba(94,234,212,.9), rgba(45,143,126,.85));box-shadow:0 0 40px rgba(94,234,212,.35);transition:transform 1s ease-in-out, opacity .3s;will-change:transform}
+.breath-text{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:26px;font-weight:600;color:var(--text);pointer-events:none}
+.breath-count{position:absolute;bottom:8px;left:50%;transform:translateX(-50%);font-size:15px;color:var(--text-muted);font-variant-numeric:tabular-nums}
+.meditation-controls{display:flex;gap:12px;justify-content:center;margin-top:14px}
+.meditation-tip{margin-top:14px;font-size:13px;line-height:1.5}
+
+/* ================= 中医古法健身 ================= */
+.fitness-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:18px;margin-top:18px}
+.fitness-card{display:flex;flex-direction:column;gap:10px;padding:20px 18px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);transition:box-shadow .2s,transform .2s}
+.fitness-card:hover{box-shadow:0 8px 24px rgba(0,0,0,.08);transform:translateY(-2px)}
+.fitness-card-icon{width:48px;height:48px;border-radius:12px;background:var(--surface-muted);display:flex;align-items:center;justify-content:center;font-size:24px}
+.fitness-card h3{margin:0;font-size:17px}
+.fitness-card p{margin:0;font-size:14px;color:var(--text-muted);line-height:1.5;flex:1}
+.fitness-card-actions{display:flex;align-items:center;gap:10px;margin-top:6px}
+.fitness-card-actions .btn{flex:1}
+.checkin-dots{display:flex;gap:5px;margin-top:10px;padding-top:10px;border-top:1px dashed var(--border)}
+.checkin-dot{width:10px;height:10px;border-radius:50%;background:var(--surface-muted);transition:background .2s}
+.checkin-dot.is-on{background:var(--brand)}
+.checkin-label{font-size:12px;color:var(--text-muted);margin-left:auto}
+.fitness-hint{margin-top:16px;text-align:center;font-size:13px}
+
 @media (prefers-reduced-motion:reduce){
   *{animation-duration:.001ms!important;transition-duration:.001ms!important}
   html{scroll-behavior:auto}

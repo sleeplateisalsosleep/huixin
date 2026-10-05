@@ -520,7 +520,11 @@
       async feedback() { return LS.get('hx_feedback', []); }
     },
     async syncAssess(items) { return { inserted: 0, total: LS.get('hx_history', []).length }; },
-    async assessments() { return LS.get('hx_history', []); }
+    async assessments() { return LS.get('hx_history', []); },
+    async uploadMoodSummary(p) { return { ok: true }; },
+    async moodSummaries() { return LS.get('hx_mood_history', []); },
+    async uploadMeditationSummary(p) { return { ok: true }; },
+    async meditationSummaries() { return LS.get('hx_meditation_history', []); }
   };
 
   /* ---------- 远程服务 ---------- */
@@ -605,7 +609,15 @@
     syncAssess: async (items) => api('api/assessments/sync', {
       method: 'POST', body: JSON.stringify({ items: items })
     }),
-    assessments: async () => (await api('api/assessments')).assessments
+    assessments: async () => (await api('api/assessments')).assessments,
+    uploadMoodSummary: async (p) => api('api/mood/summary', {
+      method: 'POST', body: JSON.stringify(p)
+    }),
+    moodSummaries: async () => (await api('api/mood/summary')).summaries,
+    uploadMeditationSummary: async (p) => api('api/meditation/summary', {
+      method: 'POST', body: JSON.stringify(p)
+    }),
+    meditationSummaries: async () => (await api('api/meditation/summary')).summaries
   };
 
   /* 启动探测：远程后端可用则用远程，否则本地回退
@@ -1263,7 +1275,7 @@
     if (!persistent && !forceSevere) {
       path.push('suggest');
       return finish(path, {
-        level: 'mild', branch: 'suggest', negs: negs, poss: poss, diaryHitWords: diaryHitWords,
+        level: riskLevel === 'mid' ? 'mid' : 'mild', branch: 'suggest', negs: negs, poss: poss, diaryHitWords: diaryHitWords,
         emoOver: true, counseling: false, meditation: true, riskLevel: riskLevel, cyc: cyc, pmsWindow: pmsWindow
       });
     }
@@ -1280,7 +1292,7 @@
       path.push('lifeHappy');
     }
     return finish(path, {
-      level: riskLevel === 'high' ? 'high' : (riskLevel === 'mid' ? 'mid' : 'mild'),
+      level: 'high',
       branch: 'severe', negs: negs, poss: poss, diaryHitWords: diaryHitWords,
       emoOver: true, persistent: true, counseling: counseling, meditation: meditation,
       riskLevel: riskLevel, abnormal: abnormal, severeScore: severeScore, cyc: cyc, pmsWindow: pmsWindow
@@ -1378,27 +1390,32 @@
     /* 4 干预方案 */
     html += '<section class="rpt-block"><h5>④ 分级干预方案</h5><div class="reco-grid">';
     if (res.branch === 'bless') {
-      html += reco('健康祝福 · 继续保持', '你的情绪状态整体平稳。记录下今天让你感觉不错的 1 件小事，它会成为下次低落时的锚点。');
-      html += reco('激励短语', '「身体的每一次潮汐都在告诉你：你比自己以为的更有韧性。」——蕙心网');
-      html += reco('日常保养', '保持规律作息与每周 3 次中等强度运动，经期前后适当补充含铁与镁的食物水。');
+      html += reco('健康祝福 · 继续保持', '你的情绪状态整体平稳。不妨记下今天让你感觉不错的 1 件小事，它也许会成为下次低落时的锚点。');
+      html += reco('激励短语', '「身体的每一次潮汐都在告诉你：你比自己以为的更有韧性。」');
+      html += reco('日常保养', '规律作息，加上每周 3 次左右的中等强度运动，对维持平稳情绪很有帮助；经期前后也可以适当补充含铁与镁的食物。');
     } else if (res.branch === 'suggest') {
-      html += reco('正念冥想建议 · 4-7-8 呼吸', '吸气 4 秒 → 屏息 7 秒 → 缓慢呼气 8 秒，做 4 轮，可快速降低交感神经兴奋。');
-      html += reco('身体扫描冥想', '睡前平躺，从脚趾到头顶逐段放松，每段停留 3 次呼吸，约 10 分钟。');
-      html += reco('情绪日记', '把此刻的感受写成 3 句话，不评价、不修改，只做记录。');
+      html += reco('正念冥想建议 · 4-7-8 呼吸', '可以试试 4-7-8 呼吸：吸气 4 秒 → 屏息 7 秒 → 缓慢呼气 8 秒，循环 4 轮，身体通常会慢慢放松下来。');
+      html += reco('身体扫描冥想', '睡前可以平躺下来，从脚趾到头顶逐段放松，每段停留 3 次呼吸，大约 10 分钟。');
+      html += reco('情绪日记', '不妨把此刻的感受写成 3 句话，不评价、不修改，只是如实记录下来。');
+      if (res.riskLevel === 'mid') {
+        html += reco('连续记录 · 看见规律', '这类持续几天的情绪值得被看见。可以每天用「情绪日记」简单记录情绪评分和一句话感受，一周后回看，往往能发现规律。');
+        html += reco('温和运动调理', '八段锦、散步、舒缓瑜伽这类温和运动，对经前期的持续情绪困扰比较友好。每天 10～20 分钟，微微发热即可，不必追求强度。');
+        html += reco('复评提醒', '如果类似情绪持续超过两周，或者影响到睡眠、吃饭和学习工作，可以考虑找学校心理中心或正规医院精神心理科聊聊。');
+      }
     } else {
       if (res.meditation) {
-        html += reco('小程序输出冥想内容', '已为你匹配 10 分钟正念冥想引导：坐姿放松 → 关注呼吸 → 觉察情绪命名 → 回到身体。建议每天固定时间练习。');
+        html += reco('小程序输出冥想内容', '为你匹配了一段 10 分钟正念冥想引导：坐姿放松 → 关注呼吸 → 觉察情绪命名 → 回到身体。如果状态允许，可以每天固定时间跟着练一次。');
       } else {
-        html += reco('情绪抚平安慰', '你现在的感受是真实的，也是可以被接住的。先做 3 次慢呼吸，再喝一杯温水，把注意力放回身体。');
-        html += reco('即时舒缓三步', '① 双脚踩地，感受支撑；② 双手抱住自己 20 秒；③ 给信任的人发一条消息。');
+        html += reco('情绪抚平安慰', '你现在的感受是真实的，也是可以被接住的。可以先做 3 次慢呼吸，再喝一杯温水，慢慢把注意力放回身体。');
+        html += reco('即时舒缓三步', '① 双脚踩地，感受脚下踏实的支撑；② 轻轻抱住自己 20 秒；③ 如果愿意，给信任的人发一条消息。');
       }
       if (res.counseling) {
         if (s.flags.selfHarm) {
-          html += reco('请立即寻求专业帮助', '你提到过伤害自己的念头，这是需要被认真对待的信号。请联系全国心理援助热线 12356，或前往医院急诊／精神心理科；也可以现在就告诉一位你信任的人，让别人陪着你。');
+          html += reco('请立即寻求专业帮助', '你提到过伤害自己的念头，这是很需要被认真对待的信号。请尽快联系全国心理援助热线 12356，或前往医院急诊／精神心理科；也可以现在就告诉一位你信任的人，让 TA 陪在你身边。');
         }
-        html += reco('心理咨询推荐', '建议预约学校心理中心或正规医院精神心理科／临床心理科。若情绪持续两周以上并影响睡眠、进食、学习工作，请尽早面询。');
+        html += reco('心理咨询推荐', '可以考虑预约学校心理中心或正规医院精神心理科／临床心理科聊聊。若情绪持续两周以上，并影响到睡眠、进食、学习工作，建议尽早面询。');
         html += reco('生活需求商品优惠券', '蕙心安心券 HX-CARE20：热敷贴、暖宫贴、低糖黑巧克力、助眠眼罩等生活护理商品可用（示例券码，仅作功能演示）。');
-        html += reco('就医科别提示', '妇科（月经异常、痛经）、精神心理科（情绪与睡眠）。就诊时可带上本页自评结果与周期记录。');
+        html += reco('就医科别提示', '可以考虑妇科（月经异常、痛经）或精神心理科（情绪与睡眠）。就诊时带上本页自评结果与周期记录，医生能更快了解你的情况。');
       } else {
         html += reco('祝福生活愉快', '你已经做完了今天最需要的一步——正视自己的情绪。愿接下来的日子里，身体轻一点，心也松一点。');
       }
@@ -1412,10 +1429,10 @@
 
     if (res.emoOver && res.branch !== 'severe') {
       html += '<section class="rpt-block"><h5>⑥ 生活建议</h5><ul class="rpt-list">' +
-        '<li>经期前后减少咖啡因与高盐食物，可减轻乳房胀痛与烦躁。</li>' +
-        '<li>保证 7 小时以上睡眠，固定起床时间比固定入睡时间更有效。</li>' +
-        '<li>每周 3～5 次、每次 30 分钟的快走或瑜伽，可显著改善经前情绪症状。</li>' +
-        '<li>若下个周期同一时段再次出现类似情绪，请打开「周期工具」记录并复评一次。</li>' +
+        '<li>经期前后可以尝试减少咖啡因和高盐食物，有些人会感到乳房胀痛和烦躁减轻一些。</li>' +
+        '<li>如果条件允许，建议保持 7 小时左右睡眠，固定的起床时间通常比固定的入睡时间更容易做到。</li>' +
+        '<li>每周 3～5 次、每次 30 分钟左右的快走或瑜伽，对改善经前情绪或许会有一些帮助。</li>' +
+        '<li>如果下个周期的同一时段又出现了类似的情绪，可以打开「周期工具」记录一下，下次复评时会更有参考。</li>' +
         '</ul></section>';
     }
 
@@ -3202,6 +3219,486 @@
     await initAdmin();
     await applyRoleUI();
     await refreshHistoryView();
+    initMoodDiary();
+    initMeditation();
+    initFitness();
+  }
+
+  /* ---------------------------------------------------------
+     4. 每日情绪日记（详细内容本地，汇总云端）
+     --------------------------------------------------------- */
+  const MOOD_KEY = 'hx_mood_history';
+
+  function initMoodDiary() {
+    const form = $('#moodForm');
+    if (!form) return;
+
+    /* 选项配置 */
+    const EMOTIONS = ['平静', '愉悦', '焦虑', '低落', '烦躁', '疲惫', '委屈想哭', '易怒失控'];
+    const SYMPTOMS = ['乳房胀痛', '小腹坠痛', '头痛头晕', '腰酸背痛', '疲乏无力', '失眠或嗜睡', '食欲改变', '面部痘痘', '无明显不适'];
+    const CYCLE = ['经期中', '经前期', '排卵期', '卵泡期', '不确定'];
+    const SLEEP = ['好', '一般', '差'];
+    const DIET = ['规律', '不规律', '暴饮暴食', '食欲不振'];
+    const EXERCISE = ['未运动', '轻度拉伸', '有氧运动', '力量训练', '古法健身'];
+
+    /* 生成 chips */
+    function buildChips(containerId, items, multi) {
+      const box = $(containerId);
+      if (!box) return;
+      box.innerHTML = items.map((v) =>
+        '<button type="button" class="chip" data-value="' + esc(v) + '">' + esc(v) + '</button>'
+      ).join('');
+      $$('.chip', box).forEach((b) => b.addEventListener('click', () => {
+        if (!multi) {
+          $$('.chip', box).forEach((x) => x.classList.remove('is-on'));
+          b.classList.add('is-on');
+        } else {
+          b.classList.toggle('is-on');
+        }
+      }));
+    }
+    buildChips('#moodEmotions', EMOTIONS, true);
+    buildChips('#moodSymptoms', SYMPTOMS, true);
+    buildChips('#moodCycle', CYCLE, false);
+    buildChips('#moodSleep', SLEEP, false);
+    buildChips('#moodDiet', DIET, false);
+    buildChips('#moodExercise', EXERCISE, false);
+
+    /* 滑块联动 */
+    const scoreInput = $('#moodScore');
+    const scoreVal = $('#moodScoreVal');
+    if (scoreInput && scoreVal) {
+      scoreInput.addEventListener('input', () => { scoreVal.textContent = scoreInput.value; });
+    }
+
+    /* 展开 / 收起表单 */
+    const toggleBtn = $('#toggleMoodForm');
+    const cancelBtn = $('#cancelMoodForm');
+    if (toggleBtn) toggleBtn.addEventListener('click', () => { form.hidden = !form.hidden; toggleBtn.textContent = form.hidden ? '写日记' : '收起'; });
+    if (cancelBtn) cancelBtn.addEventListener('click', () => { form.hidden = true; toggleBtn.textContent = '写日记'; });
+
+    /* 提交 */
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const date = new Date().toISOString().slice(0, 10);
+      const entry = {
+        date: date,
+        score: Number(scoreInput.value),
+        emotions: $$('#moodEmotions .chip.is-on').map((b) => b.getAttribute('data-value')),
+        symptoms: $$('#moodSymptoms .chip.is-on').map((b) => b.getAttribute('data-value')),
+        cycleState: ($('#moodCycle .chip.is-on') || {}).getAttribute ? $('#moodCycle .chip.is-on').getAttribute('data-value') : '',
+        sleepQuality: ($('#moodSleep .chip.is-on') || {}).getAttribute ? $('#moodSleep .chip.is-on').getAttribute('data-value') : '',
+        sleepHours: Number($('#moodSleepHours').value) || null,
+        diet: ($('#moodDiet .chip.is-on') || {}).getAttribute ? $('#moodDiet .chip.is-on').getAttribute('data-value') : '',
+        exercise: ($('#moodExercise .chip.is-on') || {}).getAttribute ? $('#moodExercise .chip.is-on').getAttribute('data-value') : '',
+        diary: ($('#moodText').value || '').trim(),
+        createdAt: new Date().toISOString()
+      };
+
+      /* 本地保存（含详细内容） */
+      const hist = LS.get(MOOD_KEY, []);
+      hist.unshift(entry);
+      LS.set(MOOD_KEY, hist.slice(0, 90));
+      toast('今日日记已保存到本地');
+
+      /* 云端同步（仅汇总字段） */
+      if (svcMode === 'remote' && me) {
+        try {
+          await svc.uploadMoodSummary({
+            date: date, score: entry.score,
+            cycleState: entry.cycleState, sleepQuality: entry.sleepQuality,
+            exercise: entry.exercise
+          });
+        } catch (e) { /* 静默失败，下次再同步 */ }
+      }
+
+      form.reset();
+      form.hidden = true;
+      if (toggleBtn) toggleBtn.textContent = '写日记';
+      refreshMoodView();
+    });
+
+    refreshMoodView();
+  }
+
+  /* 合并本地与云端日记汇总，渲染趋势与列表 */
+  async function refreshMoodView() {
+    const local = LS.get(MOOD_KEY, []);
+    let cloud = [];
+    if (svcMode === 'remote' && me) {
+      try { cloud = await svc.moodSummaries(); } catch (e) { cloud = []; }
+    }
+    /* 合并：本地优先，云端补缺（按日期去重） */
+    const map = new Map();
+    cloud.forEach((r) => { if (r && r.date) map.set(r.date, r); });
+    local.forEach((r) => { if (r && r.date) map.set(r.date, r); });
+    const merged = Array.from(map.values()).sort((a, b) => (a.date < b.date ? 1 : -1));
+
+    const list = $('#moodList');
+    const empty = $('#moodEmpty');
+    const hint = $('#moodDiaryHint');
+    if (!list || !empty) return;
+
+    empty.hidden = merged.length > 0;
+    if (hint) {
+      hint.textContent = merged.length
+        ? '共 ' + merged.length + ' 天记录 · 本地含详细内容，云端仅同步评分汇总'
+        : '点击「写日记」开始记录今天';
+    }
+
+    list.innerHTML = merged.slice(0, 14).map((r) => {
+      const d = new Date(r.date);
+      const ds = isNaN(d) ? r.date : (d.getMonth() + 1) + '月' + d.getDate() + '日';
+      return '<li class="mood-item">' +
+        '<span class="mood-date">' + esc(ds) + '</span>' +
+        '<span class="mood-score">情绪 ' + esc(String(r.score)) + ' / 10</span>' +
+        (r.cycleState ? '<span class="mood-tag">' + esc(r.cycleState) + '</span>' : '') +
+        (r.sleepQuality ? '<span class="mood-tag">睡眠：' + esc(r.sleepQuality) + '</span>' : '') +
+        '</li>';
+    }).join('');
+
+    renderMoodChart(merged);
+  }
+
+  /* Canvas 折线图：情绪评分趋势 */
+  function renderMoodChart(rows) {
+    const box = $('#moodChart');
+    if (!box) return;
+    if (!rows.length) { box.innerHTML = ''; return; }
+
+    const data = rows.slice().reverse(); /* 旧 → 新 */
+    const n = data.length;
+    const W = 720, H = 220, PL = 40, PR = 20, PT = 20, PB = 30;
+    const pw = W - PL - PR, ph = H - PT - PB;
+    const X = (i) => PL + (n === 1 ? pw / 2 : (i / (n - 1)) * pw);
+    const Y = (v) => PT + ph - ((v - 1) / 9) * ph;
+
+    let svg = '<svg viewBox="0 0 720 220" role="img" aria-label="情绪日记趋势曲线图">';
+    /* 网格 */
+    for (let v = 1; v <= 10; v += 3) {
+      const y = Y(v);
+      svg += '<line x1="' + PL + '" y1="' + y.toFixed(1) + '" x2="' + (W - PR) + '" y2="' + y.toFixed(1) + '" stroke="#e6eeec" stroke-dasharray="3 3"/>';
+      svg += '<text x="' + (PL - 6) + '" y="' + (y + 4).toFixed(1) + '" text-anchor="end" font-size="11" fill="#8aa0a2">' + v + '</text>';
+    }
+    /* 日期刻度 */
+    const tickStep = Math.max(1, Math.ceil(n / 6));
+    data.forEach((r, i) => {
+      if (i % tickStep !== 0 && i !== n - 1) return;
+      const d = new Date(r.date);
+      if (isNaN(d)) return;
+      svg += '<text x="' + X(i).toFixed(1) + '" y="' + (H - 8) + '" text-anchor="middle" font-size="10.5" fill="#8aa0a2">' +
+        (d.getMonth() + 1) + '/' + d.getDate() + '</text>';
+    });
+    /* 折线 */
+    let pts = [];
+    data.forEach((r, i) => { pts.push(X(i).toFixed(1) + ',' + Y(r.score).toFixed(1)); });
+    svg += '<polyline points="' + pts.join(' ') + '" fill="none" stroke="#37a08d" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>';
+    data.forEach((r, i) => {
+      const d = new Date(r.date);
+      const tip = (isNaN(d) ? r.date : ((d.getMonth() + 1) + '/' + d.getDate())) + ' 情绪 ' + r.score + ' / 10';
+      svg += '<circle cx="' + X(i).toFixed(1) + '" cy="' + Y(r.score).toFixed(1) + '" r="3.4" fill="#fff" stroke="#37a08d" stroke-width="2"><title>' + esc(tip) + '</title></circle>';
+    });
+    svg += '</svg>';
+    box.innerHTML = svg;
+  }
+
+  /* ---------------------------------------------------------
+     5. 正念冥想呼吸引导 + 体验反馈
+     --------------------------------------------------------- */
+  const MEDITATION_KEY = 'hx_meditation_history';
+
+  function initMeditation() {
+    const overlay = $('#meditationOverlay');
+    const circle = $('#breathCircle');
+    const text = $('#breathText');
+    const count = $('#breathCount');
+    const startBtn = $('#meditationStart');
+    const closeBtn = $('#meditationClose');
+    const muteBtn = $('#meditationMute');
+    const modeBox = $('#meditationMode');
+    if (!overlay || !circle || !text || !startBtn) return;
+
+    /* 呼吸模式：{name, phases: [{label, sec, scale}]} */
+    const MODES = {
+      '478': { name: '4-7-8 呼吸', phases: [
+        { label: '吸气…', sec: 4, scale: 1.5 },
+        { label: '屏息…', sec: 7, scale: 1.5 },
+        { label: '呼气…', sec: 8, scale: 1.0 }
+      ]},
+      'abdominal': { name: '腹式呼吸', phases: [
+        { label: '吸气…', sec: 4, scale: 1.5 },
+        { label: '屏息…', sec: 4, scale: 1.5 },
+        { label: '呼气…', sec: 6, scale: 1.0 }
+      ]}
+    };
+    let currentMode = '478';
+    let running = false;
+    let rafId = null;
+    let muted = false;
+
+    /* 模式切换 */
+    if (modeBox) {
+      $$('.chip', modeBox).forEach((b) => b.addEventListener('click', () => {
+        $$('.chip', modeBox).forEach((x) => x.classList.remove('is-on'));
+        b.classList.add('is-on');
+        currentMode = b.getAttribute('data-mode') || '478';
+        resetStage();
+      }));
+    }
+
+    function resetStage() {
+      circle.style.transform = 'scale(1)';
+      text.textContent = '准备';
+      count.textContent = '';
+      startBtn.textContent = '开始引导';
+      running = false;
+      if (rafId) cancelAnimationFrame(rafId);
+    }
+
+    /* 呼吸循环：总时长约 3 分钟（约 9 个 4-7-8 循环） */
+    function runBreath() {
+      if (!running) return;
+      const mode = MODES[currentMode];
+      const cycleSec = mode.phases.reduce((s, p) => s + p.sec, 0);
+      const totalCycles = Math.max(1, Math.round(180 / cycleSec)); /* 约 3 分钟 */
+      let cycle = 0, phaseIdx = 0, phaseStart = performance.now();
+
+      function tick(now) {
+        if (!running) return;
+        const phase = mode.phases[phaseIdx];
+        const elapsed = (now - phaseStart) / 1000;
+        const remain = Math.max(0, phase.sec - elapsed);
+
+        /* 圆圈缩放：吸气放大，呼气缩小，屏息保持 */
+        const targetScale = phase.scale;
+        const currentScale = phaseIdx === 0
+          ? 1 + (targetScale - 1) * Math.min(1, elapsed / phase.sec)
+          : phaseIdx === mode.phases.length - 1
+            ? targetScale - (targetScale - 1) * Math.min(1, elapsed / phase.sec)
+            : targetScale;
+        circle.style.transform = 'scale(' + currentScale.toFixed(3) + ')';
+        text.textContent = phase.label;
+        count.textContent = Math.ceil(remain) + ' 秒';
+
+        if (elapsed >= phase.sec) {
+          phaseIdx++;
+          if (phaseIdx >= mode.phases.length) {
+            phaseIdx = 0;
+            cycle++;
+            if (cycle >= totalCycles) {
+              finish();
+              return;
+            }
+          }
+          phaseStart = now;
+        }
+        rafId = requestAnimationFrame(tick);
+      }
+      rafId = requestAnimationFrame(tick);
+    }
+
+    function finish() {
+      running = false;
+      if (rafId) cancelAnimationFrame(rafId);
+      circle.style.transform = 'scale(1)';
+      text.textContent = '完成';
+      count.textContent = '';
+      startBtn.textContent = '开始引导';
+      overlay.hidden = true;
+      /* 打开体验反馈面板 */
+      openMeditationFeedback();
+    }
+
+    startBtn.addEventListener('click', () => {
+      if (running) {
+        /* 中途退出 */
+        resetStage();
+        return;
+      }
+      running = true;
+      startBtn.textContent = '退出';
+      runBreath();
+    });
+
+    if (closeBtn) closeBtn.addEventListener('click', () => {
+      resetStage();
+      overlay.hidden = true;
+    });
+
+    if (muteBtn) muteBtn.addEventListener('click', () => {
+      muted = !muted;
+      muteBtn.setAttribute('aria-pressed', String(muted));
+      muteBtn.textContent = muted ? '已静音' : '静音';
+    });
+
+    /* 导航入口 */
+    const navBtn = $('#navMeditation');
+    if (navBtn) navBtn.addEventListener('click', () => {
+      resetStage();
+      overlay.hidden = false;
+    });
+  }
+
+  /* 冥想体验反馈面板 */
+  function openMeditationFeedback() {
+    const modal = $('#meditationFeedback');
+    if (!modal) return;
+
+    const BODY_OPTS = ['呼吸顺畅', '肩颈放松', '腹部温暖', '头部清醒', '其他'];
+    const MOOD_OPTS = ['更平静', '焦虑减轻', '困倦', '无变化', '其他'];
+
+    function buildChips(containerId, items) {
+      const box = $(containerId);
+      if (!box) return;
+      box.innerHTML = items.map((v) =>
+        '<button type="button" class="chip" data-value="' + esc(v) + '">' + esc(v) + '</button>'
+      ).join('');
+      $$('.chip', box).forEach((b) => b.addEventListener('click', () => b.classList.toggle('is-on')));
+    }
+    buildChips('#mfBodyChips', BODY_OPTS);
+    buildChips('#mfMoodChips', MOOD_OPTS);
+
+    const relaxInput = $('#mfRelax');
+    const relaxVal = $('#mfRelaxVal');
+    if (relaxInput && relaxVal) {
+      relaxInput.addEventListener('input', () => { relaxVal.textContent = relaxInput.value; });
+    }
+
+    modal.hidden = false;
+    document.body.style.overflow = 'hidden';
+
+    const form = $('#meditationFeedbackForm');
+    const skipBtn = $('#mfSkip');
+
+    function close() {
+      modal.hidden = true;
+      document.body.style.overflow = '';
+      form.reset();
+      $$('.chip', form).forEach((c) => c.classList.remove('is-on'));
+    }
+
+    form.onsubmit = async (e) => {
+      e.preventDefault();
+      const date = new Date().toISOString().slice(0, 10);
+      const entry = {
+        date: date,
+        mode: ($('#meditationMode .chip.is-on') || {}).getAttribute ? $('#meditationMode .chip.is-on').getAttribute('data-mode') : '478',
+        duration: 180,
+        relaxScore: Number(relaxInput.value),
+        bodyChange: $$('#mfBodyChips .chip.is-on').map((b) => b.getAttribute('data-value')),
+        moodChange: $$('#mfMoodChips .chip.is-on').map((b) => b.getAttribute('data-value')),
+        note: ($('#mfNote').value || '').trim(),
+        createdAt: new Date().toISOString()
+      };
+
+      /* 本地保存详细内容 */
+      const hist = LS.get(MEDITATION_KEY, []);
+      hist.unshift(entry);
+      LS.set(MEDITATION_KEY, hist.slice(0, 90));
+      toast('冥想反馈已保存到本地');
+
+      /* 云端仅同步汇总 */
+      if (svcMode === 'remote' && me) {
+        try {
+          await svc.uploadMeditationSummary({
+            date: date, mode: entry.mode, duration: entry.duration, relaxScore: entry.relaxScore
+          });
+        } catch (e) { /* 静默失败 */ }
+      }
+      close();
+    };
+
+    if (skipBtn) skipBtn.onclick = () => { close(); };
+    $$('[data-mf-close]', modal).forEach((b) => b.onclick = () => close());
+  }
+
+  /* ---------------------------------------------------------
+     6. 中医古法健身调理区（本地打卡）
+     --------------------------------------------------------- */
+  const FITNESS_KEY = 'hx_fitness_checkin';
+
+  const FITNESS_CARDS = [
+    { id: 'baduanjin', icon: '🧘', title: '八段锦', desc: '八个动作舒展筋骨，调和气血，适合晨起或睡前练习。', detail: '八段锦口诀：两手托天理三焦、左右开弓似射雕、调理脾胃须单举、五劳七伤往后瞧、摇头摆尾去心火、两手攀足固肾腰、攒拳怒目增气力、背后七颠百病消。每个动作重复 6～8 次，配合自然呼吸。' },
+    { id: 'wuqinxi', icon: '🦌', title: '五禽戏', desc: '模仿虎、鹿、熊、猿、鸟五种动物，疏肝健脾、强腰固肾。', detail: '五禽戏通过模仿动物姿态活动全身：虎戏威猛疏肝、鹿戏舒展强腰、熊戏沉稳健脾、猿戏灵活养心、鸟戏轻盈润肺。每戏练习 3～5 分钟，动作舒缓，忌用力过猛。' },
+    { id: 'jingluo', icon: '👐', title: '经络拍打', desc: '沿经络轻拍四肢与背部，促进气血循环，缓解酸胀。', detail: '拍打顺序：先上肢后下肢，先背部后腹部。力度以皮肤微红、温热舒适为度，每部位拍打 30～50 下。经期避免拍打腰骶部与腹部，孕期禁用。' },
+    { id: 'daoyin', icon: '🌬️', title: '导引吐纳', desc: '结合呼吸与肢体伸展，调畅气机，安神助眠。', detail: '导引吐纳以鼻吸口呼为主：吸气时伸展肢体，呼气时放松回收。睡前练习 10 分钟，配合「吸—停—呼」节奏，有助于改善睡眠质量。' },
+    { id: 'jingqi', icon: '🌸', title: '经期调理操', desc: '经期专用温和动作，缓解小腹坠胀与腰酸。', detail: '经期避免剧烈运动与倒立。推荐动作：猫式伸展（缓解腰酸）、婴儿式（放松下腹）、仰卧束角式（促进盆腔血液循环）。每个动作保持 1～2 分钟，以舒适为度。' },
+    { id: 'paojiao', icon: '🦶', title: '日常泡脚 / 艾灸', desc: '温经散寒的基础调理，适合手脚冰凉、痛经人群。', detail: '泡脚水温 40℃ 左右，时间 15～20 分钟，微微出汗即可。艾灸常用穴位：关元、气海、足三里、三阴交，每穴 5～10 分钟。经期经量大者暂停艾灸，阴虚火旺者慎用。' }
+  ];
+
+  function initFitness() {
+    const grid = $('#fitnessGrid');
+    if (!grid) return;
+
+    /* 读取打卡记录：{ '2026-10-06': ['baduanjin', 'paojiao'] } */
+    let checkins = LS.get(FITNESS_KEY, {});
+
+    function todayStr() { return new Date().toISOString().slice(0, 10); }
+
+    function last7Days() {
+      const out = [];
+      for (let i = 6; i >= 0; i--) {
+        const d = new Date(); d.setDate(d.getDate() - i);
+        out.push(d.toISOString().slice(0, 10));
+      }
+      return out;
+    }
+
+    function isChecked(id) {
+      return (checkins[todayStr()] || []).indexOf(id) >= 0;
+    }
+
+    function toggleCheckin(id) {
+      const today = todayStr();
+      if (!checkins[today]) checkins[today] = [];
+      const idx = checkins[today].indexOf(id);
+      if (idx >= 0) checkins[today].splice(idx, 1);
+      else checkins[today].push(id);
+      LS.set(FITNESS_KEY, checkins);
+      render();
+    }
+
+    function render() {
+      const days = last7Days();
+      grid.innerHTML = FITNESS_CARDS.map((c) => {
+        const checked = isChecked(c.id);
+        const dots = days.map((d) => {
+          const on = (checkins[d] || []).indexOf(c.id) >= 0;
+          return '<span class="checkin-dot' + (on ? ' is-on' : '') + '" title="' + esc(d) + '"></span>';
+        }).join('');
+        return '<article class="fitness-card">' +
+          '<div class="fitness-card-icon" aria-hidden="true">' + c.icon + '</div>' +
+          '<h3>' + esc(c.title) + '</h3>' +
+          '<p>' + esc(c.desc) + '</p>' +
+          '<div class="fitness-card-actions">' +
+            '<button type="button" class="btn ' + (checked ? 'btn-primary' : 'btn-ghost') + ' btn-sm" data-checkin="' + esc(c.id) + '">' +
+              (checked ? '✓ 今日已打卡' : '今日打卡') +
+            '</button>' +
+            '<button type="button" class="btn btn-ghost btn-sm" data-detail="' + esc(c.id) + '">查看详情</button>' +
+          '</div>' +
+          '<div class="checkin-dots">' + dots + '<span class="checkin-label">近 7 天</span></div>' +
+          '</article>';
+      }).join('');
+
+      $$('[data-checkin]', grid).forEach((b) => b.addEventListener('click', () => {
+        toggleCheckin(b.getAttribute('data-checkin'));
+        toast(isChecked(b.getAttribute('data-checkin')) ? '已打卡' : '已取消打卡');
+      }));
+      $$('[data-detail]', grid).forEach((b) => b.addEventListener('click', () => {
+        const id = b.getAttribute('data-detail');
+        const c = FITNESS_CARDS.filter((x) => x.id === id)[0];
+        if (!c) return;
+        $('#modalBody').innerHTML =
+          '<div class="modal-body"><span class="cat tag tag-rose">古法健身</span>' +
+          '<h2>' + esc(c.title) + '</h2>' +
+          '<p>' + esc(c.detail) + '</p>' +
+          '<p class="modal-foot">以上为健康科普内容，不构成医疗建议；如有不适请停止练习并咨询医师。</p></div>';
+        $('#modal').hidden = false;
+        document.body.style.overflow = 'hidden';
+        $('.modal-close').focus();
+      }));
+    }
+    render();
   }
 
   main().catch((e) => {
