@@ -1,5 +1,5 @@
-# 敏感数据：SMTP 授权码、本地数据库
-data/
+# 敏感数据：SMTP 授权码、本地数据库（仅仓库根目录的 data/，不排除 mvp/data/）
+/data/
 
 # Python
 __pycache__/

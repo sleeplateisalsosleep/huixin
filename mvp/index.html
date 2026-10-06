@@ -16,6 +16,18 @@
 </head>
 <body>
 
+<!-- 微信内引导：右上角 → 浏览器打开 -->
+<div id="wxGuide" hidden>
+  <div class="wx-mask">
+    <div class="wx-box">
+      <div class="wx-arrow">↗</div>
+      <p><b>微信内无法「添加到主屏幕」</b></p>
+      <p>请点击右上角「…」<br>选择「在浏览器中打开」</p>
+      <button class="btn-secondary" id="wxDismiss">我知道了</button>
+    </div>
+  </div>
+</div>
+
 <header class="app-header">
   <div class="brand">
     <img src="icons/icon.svg" alt="" class="brand-mark" width="28" height="28">
@@ -66,6 +78,11 @@
             <button type="button" class="chip" data-v="疲惫">😪 疲惫</button>
             <button type="button" class="chip" data-v="平静">😌 平静</button>
             <button type="button" class="chip" data-v="开心">😊 开心</button>
+            <button type="button" class="chip chip-add" data-kind="mood">＋ 自定义</button>
+          </div>
+          <div class="custom-row" id="moodCustomRow" hidden>
+            <input type="text" id="moodCustomInput" maxlength="6" placeholder="输入情绪，如：委屈、感动">
+            <button type="button" class="btn-secondary btn-mini" id="moodCustomAdd">添加</button>
           </div>
         </div>
 
@@ -80,6 +97,11 @@
             <button type="button" class="chip" data-v="乳房胀痛">乳房胀痛</button>
             <button type="button" class="chip" data-v="食欲变化">食欲变化</button>
             <button type="button" class="chip" data-v="无不适">无不适</button>
+            <button type="button" class="chip chip-add" data-kind="body">＋ 自定义</button>
+          </div>
+          <div class="custom-row" id="bodyCustomRow" hidden>
+            <input type="text" id="bodyCustomInput" maxlength="6" placeholder="输入感受，如：头晕、恶心">
+            <button type="button" class="btn-secondary btn-mini" id="bodyCustomAdd">添加</button>
           </div>
         </div>
 

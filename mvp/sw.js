@@ -10,7 +10,7 @@ var ASSETS = [
   './css/style.css',
   './js/app.js',
   './js/cycle.js',
-  './data/knowledge.json',
+  './assets/knowledge.json',
   './manifest.webmanifest',
   './icons/icon.svg',
   './icons/icon-192.png',

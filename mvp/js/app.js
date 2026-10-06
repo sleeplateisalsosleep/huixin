@@ -118,14 +118,77 @@
   }
 
   /* ---------------- 打卡 ---------------- */
+  /* 注意：selMood/selBody 只原地修改（push/splice），不可整体重新赋值，
+     否则 bindChips 闭包持有的旧数组引用会与提交时读取的新数组脱节。 */
   var selMood = [];
   var selBody = [];
+  function resetSel(arr, values) {
+    arr.length = 0;
+    (values || []).forEach(function (v) { arr.push(v); });
+  }
+
+  /* 用户自定义标签（localStorage 持久化，key 与预设分开） */
+  var K_CUSTOM = 'hx_mvp_custom';
+  var customTags = readJSON(K_CUSTOM, { mood: [], body: [] });
+  function saveCustomTags() { writeJSON(K_CUSTOM, customTags); }
+
+  function renderCustomChips(kind) {
+    var box = $('#' + (kind === 'mood' ? 'moodChips' : 'bodyChips'));
+    if (!box) return;
+    // 清掉旧自定义 chip（保留预设与「自定义」按钮）
+    $all('.chip[data-custom]', box).forEach(function (c) { c.parentNode.removeChild(c); });
+    var addBtn = $('.chip-add[data-kind="' + kind + '"]', box);
+    var sel = kind === 'mood' ? selMood : selBody;
+    (customTags[kind] || []).forEach(function (v) {
+      var b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'chip';
+      b.setAttribute('data-v', v);
+      b.setAttribute('data-custom', '1');
+      b.textContent = v;
+      if (sel.indexOf(v) >= 0) b.classList.add('is-on');
+      box.insertBefore(b, addBtn);
+    });
+  }
+
+  function addCustomTag(kind) {
+    var input = $(kind === 'mood' ? '#moodCustomInput' : '#bodyCustomInput');
+    var v = (input.value || '').trim().replace(/[<>&"']/g, '');
+    if (!v) { toast('请输入内容'); return; }
+    if (v.length > 6) { toast('不超过 6 个字'); return; }
+    var sel = kind === 'mood' ? selMood : selBody;
+    // 与预设查重
+    var exists = $all('.chip', $(kind === 'mood' ? '#moodChips' : '#bodyChips')).some(function (c) {
+      return c.getAttribute('data-v') === v;
+    });
+    if (exists) { toast('「' + v + '」已存在'); return; }
+    customTags[kind] = customTags[kind] || [];
+    customTags[kind].push(v);
+    saveCustomTags();
+    // 新标签自动选中
+    if (kind === 'body') {
+      var i = selBody.indexOf('无不适');
+      if (i >= 0) selBody.splice(i, 1);
+    }
+    sel.push(v);
+    input.value = '';
+    $(kind === 'mood' ? '#moodCustomRow' : '#bodyCustomRow').hidden = true;
+    renderCustomChips(kind);
+  }
 
   function bindChips(containerId, store, afterToggle) {
     var box = $('#' + containerId);
     box.addEventListener('click', function (e) {
       var btn = e.target.closest('.chip');
       if (!btn) return;
+      // 「自定义」按钮打开输入框
+      if (btn.classList.contains('chip-add')) {
+        var kind = btn.getAttribute('data-kind');
+        var row = $(kind === 'mood' ? '#moodCustomRow' : '#bodyCustomRow');
+        row.hidden = !row.hidden;
+        if (!row.hidden) $(kind === 'mood' ? '#moodCustomInput' : '#bodyCustomInput').focus();
+        return;
+      }
       var v = btn.getAttribute('data-v');
       // 「无不适」与其他身体标签互斥
       if (containerId === 'bodyChips') {
@@ -163,8 +226,10 @@
 
   function prefillToday() {
     var e = findEntry(todayIso());
-    selMood = e ? e.moodTags.slice() : [];
-    selBody = e ? e.bodyTags.slice() : [];
+    resetSel(selMood, e ? e.moodTags : []);
+    resetSel(selBody, e ? e.bodyTags : []);
+    renderCustomChips('mood');
+    renderCustomChips('body');
     syncChipUI($('#moodChips'), selMood);
     syncChipUI($('#bodyChips'), selBody);
     $('#noteInput').value = e ? (e.note || '') : '';
@@ -274,20 +339,22 @@
   function closeFeedback() { $('#feedbackMask').hidden = true; }
 
   /* ---------------- 趋势 ---------------- */
-  var MOOD_ORDER = { '低落': 3, '疲惫': 3, '焦虑': 2, '烦躁': 2, '平静': 1, '开心': 1 };
+  /* 情绪→颜色：消极红、焦虑橙、积极绿、自定义粉绿混合 */
+  var KNOWN_MOODS = { '焦虑': 1, '低落': 1, '烦躁': 1, '疲惫': 1, '平静': 1, '开心': 1 };
   function moodColorOf(tags) {
     if (!tags || tags.length === 0) return '';
-    var rank = 0, color = '';
+    var hasNeg = false, hasAnx = false, hasPos = false, hasCustom = false;
     tags.forEach(function (t) {
-      var r = MOOD_ORDER[t] || 0;
-      if (r > rank) {
-        rank = r;
-        if (t === '低落' || t === '疲惫') color = 'c-rose';
-        else if (t === '焦虑' || t === '烦躁') color = 'c-amber';
-        else color = 'c-teal';
-      }
+      if (t === '低落' || t === '疲惫') hasNeg = true;
+      else if (t === '焦虑' || t === '烦躁') hasAnx = true;
+      else if (t === '平静' || t === '开心') hasPos = true;
+      else if (!KNOWN_MOODS[t]) hasCustom = true;
     });
-    return color;
+    if (hasNeg) return 'c-rose';
+    if (hasAnx) return 'c-amber';
+    if (hasCustom) return 'c-mix';   /* 自定义 → 粉绿混合 */
+    if (hasPos) return 'c-teal';
+    return '';
   }
   function bandClass(stage) {
     if (stage === '月经期') return 'band-period';
@@ -309,13 +376,16 @@
       var stage = isOnboarded()
         ? Cycle.cycleInfo(settings.lastPeriod, settings.cycleLen, d).stage
         : '';
-      var cell = document.createElement('div');
+      var cell = document.createElement('button');
+      cell.type = 'button';
       cell.className = 'week-cell';
+      cell.setAttribute('data-date', iso);
       cell.innerHTML =
         '<span class="week-dow">' + (i === 0 ? '今天' : dows[d.getDay()]) + '</span>' +
         '<div class="week-dot ' + color + '">' + (color ? '♥' : '') + '</div>' +
         '<span class="week-num">' + (d.getMonth() + 1) + '/' + d.getDate() + '</span>' +
         '<span class="week-band ' + bandClass(stage) + '"></span>';
+      cell.addEventListener('click', function () { openRecordSheet(iso); });
       grid.appendChild(cell);
     }
 
@@ -333,13 +403,49 @@
       }).join('');
       var body = r.bodyTags.filter(function (t) { return t !== '无不适'; })
         .map(function (t) { return '<span class="t">' + esc(t) + '</span>'; }).join('');
-      return '<div class="record-item">' +
+      return '<button type="button" class="record-item" data-date="' + r.date + '">' +
         '<div class="record-head"><span>' + r.date + '</span>' +
         '<span class="record-stage">' + esc(r.phase || '') + '</span></div>' +
         '<div class="record-tags">' + mood + body + '</div>' +
         (r.note ? '<p class="record-note">' + esc(r.note) + '</p>' : '') +
-        '</div>';
+        '<div class="record-more">点击查看详情 ›</div>' +
+        '</button>';
     }).join('');
+    $all('.record-item', list).forEach(function (el) {
+      el.addEventListener('click', function () { openRecordSheet(el.getAttribute('data-date')); });
+    });
+  }
+
+  /* 某日记录详情弹层 */
+  function openRecordSheet(dateIso) {
+    var rec = findEntry(dateIso);
+    var body = $('#kbSheetBody');
+    if (!rec) {
+      body.innerHTML =
+        '<h2 class="kb-detail-title">' + dateIso + '</h2>' +
+        '<div class="empty">这一天没有记录</div>' +
+        '<button class="btn-secondary" id="kbCloseBtn">关闭</button>';
+    } else {
+      var mood = rec.moodTags.length
+        ? rec.moodTags.map(function (t) {
+            var neg = ['焦虑', '低落', '烦躁', '疲惫'].indexOf(t) >= 0;
+            return '<span class="t ' + (neg ? 'mood-neg' : '') + '">' + esc(t) + '</span>';
+          }).join('')
+        : '<span class="muted">未选择</span>';
+      var bodyTags = rec.bodyTags.length
+        ? rec.bodyTags.map(function (t) { return '<span class="t">' + esc(t) + '</span>'; }).join('')
+        : '<span class="muted">未选择</span>';
+      body.innerHTML =
+        '<h2 class="kb-detail-title">' + dateIso + '</h2>' +
+        '<div class="record-head" style="margin-bottom:10px"><span></span>' +
+        '<span class="record-stage">' + esc(rec.phase || '') + '</span></div>' +
+        '<h3>情绪</h3><div class="record-tags">' + mood + '</div>' +
+        '<h3>身体感受</h3><div class="record-tags">' + bodyTags + '</div>' +
+        (rec.note ? '<h3>日记</h3><p class="record-note">' + esc(rec.note) + '</p>' : '') +
+        '<button class="btn-secondary" id="kbCloseBtn" style="margin-top:14px">关闭</button>';
+    }
+    $('#kbSheetMask').hidden = false;
+    $('#kbCloseBtn').onclick = function () { $('#kbSheetMask').hidden = true; };
   }
 
   /* ---------------- 知识 ---------------- */
@@ -348,7 +454,7 @@
   var kbQuery = '';
 
   function loadKb() {
-    return fetch('data/knowledge.json', { cache: 'no-cache' })
+    return fetch('assets/knowledge.json', { cache: 'no-cache' })
       .then(function (r) { return r.json(); })
       .then(function (list) { kbCache = list; return list; })
       .catch(function () { kbCache = []; return []; });
@@ -474,7 +580,9 @@
     if (!confirm('将清除周期设置与全部打卡记录，且无法恢复。\n建议先导出备份。确定清除吗？')) return;
     localStorage.removeItem(K_SET);
     localStorage.removeItem(K_ENTRIES);
+    localStorage.removeItem(K_CUSTOM);
     settings = null; entries = [];
+    customTags = { mood: [], body: [] };
     $('#noteInput').value = '';
     toast('本地数据已清除');
     renderToday();
@@ -516,6 +624,16 @@
       searchTimer = setTimeout(function () { kbQuery = v; renderKnowledge(); }, 180);
     });
 
+    /* 自定义标签输入 */
+    $('#moodCustomAdd').addEventListener('click', function () { addCustomTag('mood'); });
+    $('#moodCustomInput').addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') { e.preventDefault(); addCustomTag('mood'); }
+    });
+    $('#bodyCustomAdd').addEventListener('click', function () { addCustomTag('body'); });
+    $('#bodyCustomInput').addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') { e.preventDefault(); addCustomTag('body'); }
+    });
+
     $('#setSave').addEventListener('click', saveSettingsForm);
     $('#exportBtn').addEventListener('click', exportData);
     $('#importBtn').addEventListener('click', function () { $('#importFile').click(); });
@@ -533,9 +651,23 @@
     });
   }
 
+  /* ---------------- 微信内引导 ---------------- */
+  function maybeShowWxGuide() {
+    var isWx = /MicroMessenger/i.test(navigator.userAgent || '');
+    if (!isWx) return;
+    try { if (sessionStorage.getItem('hx_wx_guide_shown')) return; } catch (e) {}
+    $('#wxGuide').hidden = false;
+    try { sessionStorage.setItem('hx_wx_guide_shown', '1'); } catch (e) {}
+  }
+
   /* ---------------- 启动 ---------------- */
   document.addEventListener('DOMContentLoaded', function () {
     bind();
+    $('#wxDismiss').addEventListener('click', function () { $('#wxGuide').hidden = true; });
+    $('#wxGuide .wx-mask').addEventListener('click', function (e) {
+      if (e.target === this) $('#wxGuide').hidden = true;
+    });
+    maybeShowWxGuide();
     renderToday();
     showTab(currentTab());
   });
