@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#27887a">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="蕙心">
+<title>蕙心 · 周期情绪日记</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon-180.png">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<header class="app-header">
+  <div class="brand">
+    <img src="icons/icon.svg" alt="" class="brand-mark" width="28" height="28">
+    <b>蕙心</b>
+    <span class="brand-sub">周期情绪日记</span>
+  </div>
+</header>
+
+<main class="views">
+
+  <!-- ============ 今日 ============ -->
+  <section class="view" id="view-today" data-view="today">
+
+    <!-- 首次设置 -->
+    <div class="card" id="onboard" hidden>
+      <h2>先设置你的周期</h2>
+      <p class="muted">只需一步，用于推算你当前的周期阶段。所有数据只保存在这部手机的浏览器里。</p>
+      <label class="field">
+        <span>上次月经开始日期</span>
+        <input type="date" id="onboardDate" inputmode="none">
+      </label>
+      <details class="adv">
+        <summary>周期长度（默认 28 天）</summary>
+        <input type="number" id="onboardLen" value="28" min="21" max="40" inputmode="numeric">
+      </details>
+      <button class="btn-primary submit-bar-btn" id="onboardSave">完成设置</button>
+      <p class="privacy-note">🔒 数据只存本地，不会上传服务器</p>
+    </div>
+
+    <!-- 今日打卡 -->
+    <div id="checkin">
+      <div class="cycle-card">
+        <div class="cycle-line">
+          <span id="todayDate"></span>
+          <span class="cycle-day" id="cycleDay"></span>
+        </div>
+        <div class="cycle-stage" id="cycleStage"></div>
+        <div class="cycle-next" id="cycleNext"></div>
+      </div>
+
+      <form id="checkinForm">
+        <div class="card">
+          <h3>今天情绪如何？<span class="req">可多选</span></h3>
+          <div class="chips" id="moodChips">
+            <button type="button" class="chip" data-v="焦虑">😣 焦虑</button>
+            <button type="button" class="chip" data-v="低落">😔 低落</button>
+            <button type="button" class="chip" data-v="烦躁">😤 烦躁</button>
+            <button type="button" class="chip" data-v="疲惫">😪 疲惫</button>
+            <button type="button" class="chip" data-v="平静">😌 平静</button>
+            <button type="button" class="chip" data-v="开心">😊 开心</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <h3>身体感受 <span class="req">可多选</span></h3>
+          <div class="chips" id="bodyChips">
+            <button type="button" class="chip" data-v="腹痛">腹痛</button>
+            <button type="button" class="chip" data-v="腰酸">腰酸</button>
+            <button type="button" class="chip" data-v="头痛">头痛</button>
+            <button type="button" class="chip" data-v="疲劳">疲劳</button>
+            <button type="button" class="chip" data-v="失眠">失眠</button>
+            <button type="button" class="chip" data-v="乳房胀痛">乳房胀痛</button>
+            <button type="button" class="chip" data-v="食欲变化">食欲变化</button>
+            <button type="button" class="chip" data-v="无不适">无不适</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <details id="noteWrap">
+            <summary>写一句话（可选）</summary>
+            <textarea id="noteInput" rows="3" maxlength="200" placeholder="今天发生了什么？"></textarea>
+          </details>
+        </div>
+
+        <div class="submit-space"></div>
+        <div class="submit-bar">
+          <button type="submit" class="btn-primary" id="checkinSubmit">保存今日记录</button>
+        </div>
+      </form>
+    </div>
+  </section>
+
+  <!-- ============ 趋势 ============ -->
+  <section class="view" id="view-trend" data-view="trend" hidden>
+    <h2 class="view-title">最近 7 天</h2>
+    <div class="card" id="weekCard">
+      <div class="week-grid" id="weekGrid"></div>
+      <div class="legend">
+        <span><i class="dot c-teal"></i>平静/开心</span>
+        <span><i class="dot c-amber"></i>焦虑/烦躁</span>
+        <span><i class="dot c-rose"></i>低落/疲惫</span>
+        <span><i class="dot c-gray"></i>未记录</span>
+      </div>
+      <p class="stage-legend muted">色块下方色带：<i class="band band-period"></i>经期 <i class="band band-ovu"></i>排卵 <i class="band band-luteal"></i>黄体/经前 <i class="band band-follic"></i>卵泡</p>
+    </div>
+
+    <h2 class="view-title">历史记录 <span class="muted small" id="trendCount"></span></h2>
+    <div class="record-list" id="recordList"></div>
+  </section>
+
+  <!-- ============ 知识 ============ -->
+  <section class="view" id="view-knowledge" data-view="knowledge" hidden>
+    <div class="search-bar">
+      <input type="search" id="kbSearch" placeholder="搜索：PMS、痛经、失眠…">
+    </div>
+    <div class="cat-scroll" id="catChips">
+      <button type="button" class="chip is-on" data-cat="全部">全部</button>
+      <button type="button" class="chip" data-cat="情绪与 PMS">情绪与 PMS</button>
+      <button type="button" class="chip" data-cat="痛经与不适">痛经不适</button>
+      <button type="button" class="chip" data-cat="就医与检查">就医</button>
+      <button type="button" class="chip" data-cat="经期护理">睡眠护理</button>
+      <button type="button" class="chip" data-cat="周期基础">周期基础</button>
+      <button type="button" class="chip" data-cat="常见误区">误区</button>
+      <button type="button" class="chip" data-cat="经期营养">饮食</button>
+    </div>
+    <div class="kb-list" id="kbList"></div>
+  </section>
+
+  <!-- ============ 我的 ============ -->
+  <section class="view" id="view-me" data-view="me" hidden>
+    <div class="card">
+      <h3>周期设置</h3>
+      <label class="field">
+        <span>上次月经开始日期</span>
+        <input type="date" id="setDate" inputmode="none">
+      </label>
+      <label class="field">
+        <span>周期长度（21–40 天）</span>
+        <input type="number" id="setLen" min="21" max="40" inputmode="numeric">
+      </label>
+      <button class="btn-secondary" id="setSave">保存设置</button>
+    </div>
+
+    <div class="card">
+      <h3>数据管理</h3>
+      <p class="muted small">数据只存在本浏览器，清理缓存会丢失，建议定期导出备份。</p>
+      <div class="btn-row">
+        <button class="btn-secondary" id="exportBtn">导出 JSON</button>
+        <button class="btn-secondary" id="importBtn">导入 JSON</button>
+      </div>
+      <input type="file" id="importFile" accept="application/json,.json" hidden>
+      <button class="btn-danger" id="clearBtn">清除全部本地数据</button>
+    </div>
+
+    <div class="card disclaimer">
+      <h3>免责声明</h3>
+      <p class="small">本应用内容仅用于健康科普与自我观察，<b>不构成医疗诊断或治疗建议</b>，不能替代医生面诊。</p>
+      <p class="small">如出现大量出血、剧烈腹痛、发热晕厥，或情绪持续低落两周以上、出现自伤念头，请尽快线下就医或拨打心理援助热线：</p>
+      <p class="hotline">全国心理援助热线 <b>12356</b><br>北京心理危机研究与干预中心 <b>010-82951332</b></p>
+    </div>
+    <p class="version muted small">蕙心 MVP v0.1 · 本地优先</p>
+  </section>
+
+</main>
+
+<!-- 底部导航 -->
+<nav class="tabbar">
+  <a class="tab is-active" href="#today" data-tab="today">
+    <span class="tab-ico">📝</span><span>今日</span>
+  </a>
+  <a class="tab" href="#trend" data-tab="trend">
+    <span class="tab-ico">📈</span><span>趋势</span>
+  </a>
+  <a class="tab" href="#knowledge" data-tab="knowledge">
+    <span class="tab-ico">📚</span><span>知识</span>
+  </a>
+  <a class="tab" href="#me" data-tab="me">
+    <span class="tab-ico">👤</span><span>我的</span>
+  </a>
+</nav>
+
+<!-- 知识详情底部弹层 -->
+<div class="sheet-mask" id="kbSheetMask" hidden>
+  <div class="sheet" role="dialog" aria-modal="true">
+    <div class="sheet-handle"></div>
+    <div class="sheet-body" id="kbSheetBody"></div>
+  </div>
+</div>
+
+<!-- 打卡反馈弹层 -->
+<div class="sheet-mask" id="feedbackMask" hidden>
+  <div class="sheet sheet-sm" role="dialog" aria-modal="true">
+    <div class="sheet-body" id="feedbackBody"></div>
+  </div>
+</div>
+
+<!-- toast -->
+<div class="toast" id="toast" hidden></div>
+
+<script src="js/cycle.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>

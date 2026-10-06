@@ -1,0 +1,17 @@
+{
+  "name": "蕙心 · 周期情绪日记",
+  "short_name": "蕙心",
+  "description": "本地优先的经期周期与情绪记录工具，可离线使用。",
+  "lang": "zh-CN",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#f7fbfa",
+  "theme_color": "#27887a",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "icons/icon-512-maskable.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
