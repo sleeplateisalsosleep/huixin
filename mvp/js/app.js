@@ -364,56 +364,96 @@
     return '';
   }
 
+  /* 历史记录列表分页：每次加载 30 条 */
+  var LIST_PAGE = 30;
+  var listShown = LIST_PAGE;
+
   function renderTrend() {
+    renderSevenGrid();
+    renderRecordList();
+  }
+
+  /* 最近七次：只放真实打卡，从旧到新；未打卡日子不占位 */
+  function renderSevenGrid() {
     var grid = $('#weekGrid');
     grid.innerHTML = '';
     var dows = ['日', '一', '二', '三', '四', '五', '六'];
-    for (var i = 6; i >= 0; i--) {
-      var d = new Date(); d.setDate(d.getDate() - i);
-      var iso = Cycle.isoDate(d);
-      var rec = findEntry(iso);
-      var color = rec ? moodColorOf(rec.moodTags) : '';
-      var stage = isOnboarded()
-        ? Cycle.cycleInfo(settings.lastPeriod, settings.cycleLen, d).stage
-        : '';
+    var last7 = entries.slice().sort(function (a, b) {
+      return a.date < b.date ? -1 : (a.date > b.date ? 1 : 0);
+    }).slice(-7);
+    var today = todayIso();
+
+    if (last7.length === 0) {
+      grid.innerHTML =
+        '<div class="empty" style="grid-column:1/-1;padding:18px 10px">' +
+        '还没有记录，完成第一次打卡后，<br>这里会显示最近七次情绪。</div>';
+      return;
+    }
+
+    last7.forEach(function (rec) {
+      var d = new Date(rec.date + 'T00:00:00');
+      var color = moodColorOf(rec.moodTags);
+      var dotCls = color || 'c-none'; // 打了卡但未选情绪 → 中性描边，区别于无格
+      var stage = rec.phase;
+      if (!stage && isOnboarded()) {
+        stage = Cycle.cycleInfo(settings.lastPeriod, settings.cycleLen, d).stage;
+      }
       var cell = document.createElement('button');
       cell.type = 'button';
       cell.className = 'week-cell';
-      cell.setAttribute('data-date', iso);
+      cell.setAttribute('data-date', rec.date);
       cell.innerHTML =
-        '<span class="week-dow">' + (i === 0 ? '今天' : dows[d.getDay()]) + '</span>' +
-        '<div class="week-dot ' + color + '">' + (color ? '♥' : '') + '</div>' +
+        '<span class="week-dow">' + (rec.date === today ? '今天' : dows[d.getDay()]) + '</span>' +
+        '<div class="week-dot ' + dotCls + '">' + (color ? '♥' : '♡') + '</div>' +
         '<span class="week-num">' + (d.getMonth() + 1) + '/' + d.getDate() + '</span>' +
-        '<span class="week-band ' + bandClass(stage) + '"></span>';
-      cell.addEventListener('click', function () { openRecordSheet(iso); });
+        '<span class="week-band ' + bandClass(stage || '') + '"></span>';
+      cell.addEventListener('click', function () { openRecordSheet(rec.date); });
       grid.appendChild(cell);
-    }
+    });
+  }
 
+  function recordItemHTML(r) {
+    var mood = r.moodTags.map(function (t) {
+      var neg = ['焦虑', '低落', '烦躁', '疲惫'].indexOf(t) >= 0;
+      return '<span class="t ' + (neg ? 'mood-neg' : '') + '">' + esc(t) + '</span>';
+    }).join('');
+    var body = r.bodyTags.filter(function (t) { return t !== '无不适'; })
+      .map(function (t) { return '<span class="t">' + esc(t) + '</span>'; }).join('');
+    return '<button type="button" class="record-item" data-date="' + r.date + '">' +
+      '<div class="record-head"><span>' + r.date + '</span>' +
+      '<span class="record-stage">' + esc(r.phase || '') + '</span></div>' +
+      '<div class="record-tags">' + mood + body + '</div>' +
+      (r.note ? '<p class="record-note">' + esc(r.note) + '</p>' : '') +
+      '<div class="record-more">点击查看详情 ›</div>' +
+      '</button>';
+  }
+
+  function renderRecordList() {
     var list = $('#recordList');
-    var recent = entries.slice(-30).reverse();
-    $('#trendCount').textContent = recent.length ? '共 ' + recent.length + ' 次' : '';
-    if (recent.length === 0) {
+    var moreBtn = $('#loadMoreBtn');
+    var all = entries.slice().sort(function (a, b) {
+      return a.date < b.date ? 1 : (a.date > b.date ? -1 : 0);
+    }); // 最新日期在前（防御乱序数据）
+    $('#trendCount').textContent = all.length ? '共 ' + all.length + ' 次' : '';
+
+    if (all.length === 0) {
       list.innerHTML = '<div class="empty">还没有记录。<br>回到「今日」完成第一次打卡吧。</div>';
+      moreBtn.hidden = true;
       return;
     }
-    list.innerHTML = recent.map(function (r) {
-      var mood = r.moodTags.map(function (t) {
-        var neg = ['焦虑', '低落', '烦躁', '疲惫'].indexOf(t) >= 0;
-        return '<span class="t ' + (neg ? 'mood-neg' : '') + '">' + esc(t) + '</span>';
-      }).join('');
-      var body = r.bodyTags.filter(function (t) { return t !== '无不适'; })
-        .map(function (t) { return '<span class="t">' + esc(t) + '</span>'; }).join('');
-      return '<button type="button" class="record-item" data-date="' + r.date + '">' +
-        '<div class="record-head"><span>' + r.date + '</span>' +
-        '<span class="record-stage">' + esc(r.phase || '') + '</span></div>' +
-        '<div class="record-tags">' + mood + body + '</div>' +
-        (r.note ? '<p class="record-note">' + esc(r.note) + '</p>' : '') +
-        '<div class="record-more">点击查看详情 ›</div>' +
-        '</button>';
-    }).join('');
+
+    var shown = all.slice(0, listShown);
+    list.innerHTML = shown.map(recordItemHTML).join('');
     $all('.record-item', list).forEach(function (el) {
       el.addEventListener('click', function () { openRecordSheet(el.getAttribute('data-date')); });
     });
+
+    if (all.length > listShown) {
+      moreBtn.hidden = false;
+      moreBtn.textContent = '查看更多（还有 ' + (all.length - listShown) + ' 条）';
+    } else {
+      moreBtn.hidden = true;
+    }
   }
 
   /* 某日记录详情弹层 */
@@ -583,6 +623,7 @@
     localStorage.removeItem(K_CUSTOM);
     settings = null; entries = [];
     customTags = { mood: [], body: [] };
+    listShown = LIST_PAGE;
     $('#noteInput').value = '';
     toast('本地数据已清除');
     renderToday();
@@ -642,10 +683,25 @@
       this.value = '';
     });
     $('#clearBtn').addEventListener('click', clearAll);
+
+    /* 历史记录「查看更多」：每次再加 30 条 */
+    $('#loadMoreBtn').addEventListener('click', function () {
+      listShown += LIST_PAGE;
+      renderRecordList();
+    });
   }
 
   /* ---------------- Service Worker ---------------- */
   if ('serviceWorker' in navigator) {
+    /* 新 SW 接管后自动刷新一次，避免新旧缓存混合（sessionStorage 标记防循环） */
+    var reloaded = false;
+    try { reloaded = sessionStorage.getItem('hx_sw_reloaded') === '1'; } catch (e) {}
+    if (!reloaded) {
+      navigator.serviceWorker.addEventListener('controllerchange', function () {
+        try { sessionStorage.setItem('hx_sw_reloaded', '1'); } catch (e) {}
+        location.reload();
+      });
+    }
     window.addEventListener('load', function () {
       navigator.serviceWorker.register('sw.js').catch(function () { /* 离线能力静默降级 */ });
     });

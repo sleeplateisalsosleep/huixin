@@ -161,6 +161,8 @@ img{max-width:100%; display:block}
   border-color:var(--teal-300); color:#fff; text-shadow:0 1px 2px rgba(0,0,0,.15)
 }
 .dot.c-mix{background:linear-gradient(135deg, var(--teal-300), var(--rose-300))}
+.week-dot.c-none{background:#f2f6f5; border-color:#cfdcd8; color:#9bb3ae}
+.dot.c-none{background:#dde7e4}
 .week-band{width:80%; height:5px; border-radius:3px; background:#eef2f1}
 .week-band.band-period{background:var(--rose-600)}
 .week-band.band-ovu{background:var(--teal-500)}
@@ -188,6 +190,10 @@ img{max-width:100%; display:block}
 .record-item{width:100%; text-align:left; cursor:pointer}
 .record-item:active{background:var(--teal-100)}
 .record-more{font-size:12px; color:var(--muted); margin-top:6px; text-align:right}
+.load-more{
+  display:block; width:100%; max-width:480px; margin:4px auto 0;
+  min-height:46px; background:#fff;
+}
 .empty{text-align:center; color:var(--muted); font-size:14px; padding:26px 10px}
 
 /* ---------- 知识 ---------- */

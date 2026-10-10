@@ -121,20 +121,22 @@
 
   <!-- ============ 趋势 ============ -->
   <section class="view" id="view-trend" data-view="trend" hidden>
-    <h2 class="view-title">最近 7 天</h2>
+    <h2 class="view-title">最近七次</h2>
     <div class="card" id="weekCard">
       <div class="week-grid" id="weekGrid"></div>
       <div class="legend">
         <span><i class="dot c-teal"></i>平静/开心</span>
         <span><i class="dot c-amber"></i>焦虑/烦躁</span>
         <span><i class="dot c-rose"></i>低落/疲惫</span>
-        <span><i class="dot c-gray"></i>未记录</span>
+        <span><i class="dot c-mix"></i>自定义</span>
+        <span><i class="dot c-none"></i>已打卡·未选情绪</span>
       </div>
       <p class="stage-legend muted">色块下方色带：<i class="band band-period"></i>经期 <i class="band band-ovu"></i>排卵 <i class="band band-luteal"></i>黄体/经前 <i class="band band-follic"></i>卵泡</p>
     </div>
 
     <h2 class="view-title">历史记录 <span class="muted small" id="trendCount"></span></h2>
     <div class="record-list" id="recordList"></div>
+    <button type="button" class="btn-secondary load-more" id="loadMoreBtn" hidden>查看更多</button>
   </section>
 
   <!-- ============ 知识 ============ -->
