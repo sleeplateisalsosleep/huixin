@@ -493,16 +493,41 @@
   var kbCat = '全部';
   var kbQuery = '';
 
-  function loadKb() {
-    return fetch('assets/knowledge.json', { cache: 'no-cache' })
-      .then(function (r) { return r.json(); })
-      .then(function (list) { kbCache = list; return list; })
-      .catch(function () { kbCache = []; return []; });
+  var kbError = false;
+
+  function loadKb(force) {
+    kbError = false;
+    var url = 'assets/knowledge.json' + (force ? ('?r=' + Date.now()) : '');
+    return fetch(url, { cache: 'no-cache' })
+      .then(function (r) {
+        if (!r.ok) throw new Error('http ' + r.status);
+        return r.json();
+      })
+      .then(function (list) {
+        if (!Array.isArray(list)) throw new Error('bad format');
+        kbCache = list; kbError = false;
+        return list;
+      })
+      .catch(function () {
+        kbCache = null; kbError = true;
+        return [];
+      });
   }
 
   function renderKnowledge() {
-    var done = kbCache ? Promise.resolve(kbCache) : loadKb();
+    var done = (kbCache && !kbError) ? Promise.resolve(kbCache) : loadKb();
     done.then(function (list) {
+      var box = $('#kbList');
+      if (kbError) {
+        box.innerHTML =
+          '<div class="empty">内容加载失败，可能是网络不稳定。<br>' +
+          '<button type="button" class="btn-secondary btn-mini" id="kbRetry" style="margin-top:12px">点击重试</button></div>';
+        $('#kbRetry').addEventListener('click', function () {
+          box.innerHTML = '<div class="empty">加载中…</div>';
+          loadKb(true).then(renderKnowledge);
+        });
+        return;
+      }
       var q = kbQuery.trim().toLowerCase();
       var filtered = list.filter(function (x) {
         var catOk = kbCat === '全部' ||
@@ -515,7 +540,6 @@
         var hay = (x.title + x.summary + x.tags.join('')).toLowerCase();
         return hay.indexOf(q) >= 0;
       });
-      var box = $('#kbList');
       if (filtered.length === 0) {
         box.innerHTML = '<div class="empty">没有找到相关内容</div>';
         return;
