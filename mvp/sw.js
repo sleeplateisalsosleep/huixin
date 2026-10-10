@@ -3,7 +3,7 @@
    策略：install 预缓存 app shell；运行时同源 GET 走 cache-first
    作用域：/huixin/mvp/（由注册路径自动限定，与主站隔离）
    ============================================================ */
-var CACHE = 'hx-mvp-v1';
+var CACHE = 'hx-mvp-v2';
 var ASSETS = [
   './',
   './index.html',
@@ -13,6 +13,7 @@ var ASSETS = [
   './assets/knowledge.json',
   './manifest.webmanifest',
   './icons/icon.svg',
+  './icons/logo.png',
   './icons/icon-192.png',
   './icons/icon-512.png',
   './icons/icon-512-maskable.png',

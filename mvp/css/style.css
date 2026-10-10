@@ -38,9 +38,11 @@ img{max-width:100%; display:block}
   padding:calc(10px + env(safe-area-inset-top)) 16px 10px;
 }
 .brand{display:flex; align-items:center; gap:8px}
-.brand-mark{flex:0 0 28px}
-.brand b{font-size:18px; letter-spacing:.08em; color:var(--teal-900)}
-.brand-sub{font-size:12px; color:var(--muted)}
+.brand-mark{
+  flex:0 0 32px; width:32px; height:32px; border-radius:50%;
+  object-fit:cover; display:block;
+}
+.brand-sub{font-size:13px; color:var(--ink-2); font-weight:600; align-self:center}
 
 /* ---------- 视图容器 ---------- */
 .views{max-width:480px; margin:0 auto; padding:14px 14px 20px}
@@ -132,7 +134,10 @@ img{max-width:100%; display:block}
   flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center;
   gap:2px; min-height:var(--tabbar-h); color:var(--muted); font-size:12px; text-decoration:none;
 }
-.tab-ico{font-size:21px; line-height:1; filter:grayscale(.4)}
+.tab-ico{
+  font-size:21px; line-height:1; filter:grayscale(.4);
+  visibility:hidden; /* 图标占位保留、视觉隐藏，文字与点击区域不变 */
+}
 .tab.is-active{color:var(--teal-700); font-weight:600}
 .tab.is-active .tab-ico{filter:none}
 
