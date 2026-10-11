@@ -418,11 +418,13 @@
 
       if (rec) {
         monthCount++;
-        color = moodColorOf(rec.moodTags);
+        var moodTags = rec.moodTags || [];
+        var bodyTags = rec.bodyTags || [];
+        color = moodColorOf(moodTags);
         cls += color ? ' ' + color : ' c-none';
-        var n = Math.min(rec.moodTags.length, 3);
+        var n = Math.min(moodTags.length, 3);
         for (var k = 0; k < n; k++) dots += '<i class="cal-dot"></i>';
-        var realBody = rec.bodyTags.filter(function (t) { return t !== '无不适'; });
+        var realBody = bodyTags.filter(function (t) { return t !== '无不适'; });
         if (realBody.length > 0 || rec.note) corner = '<i class="cal-corner" title="有身体感受或日记"></i>';
         ariaExtra = color ? '已打卡' : '已打卡·未选情绪';
       }
@@ -450,7 +452,10 @@
       grid.appendChild(cell);
     }
 
-    while ((startDow + daysInMonth) % 7 !== 0) appendEmpty();
+    // 尾部补空格至 7 的倍数（计数器必须随补格递增，否则条件恒真会死循环；
+    // 42 格=6 行是月历的理论上限，硬封顶杜绝任何情况下的无限追加）
+    var cellTotal = startDow + daysInMonth;
+    while (cellTotal % 7 !== 0 && cellTotal < 42) { appendEmpty(); cellTotal++; }
 
     $('#calCount').textContent = monthCount ? '本月打卡 ' + monthCount + ' 次' : '';
   }
