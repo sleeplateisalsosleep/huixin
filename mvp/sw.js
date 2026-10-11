@@ -6,7 +6,7 @@
    - 其余同源 GET 走 cache-first
    作用域：/huixin/mvp/（由注册路径自动限定，与主站隔离）
    ============================================================ */
-var CACHE = 'hx-mvp-v8';
+var CACHE = 'hx-mvp-v9';
 var ASSETS = [
   './',
   './index.html',

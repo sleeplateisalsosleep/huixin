@@ -141,32 +141,48 @@ img{max-width:100%; display:block}
 .tab.is-active{color:var(--teal-700); font-weight:600}
 .tab.is-active .tab-ico{filter:none}
 
-/* ---------- 趋势 ---------- */
-.week-grid{
-  display:grid; grid-template-columns:repeat(7,1fr); gap:6px; margin-bottom:14px;
+/* ---------- 趋势 · 日历 ---------- */
+.cal-head{display:flex; align-items:center; justify-content:space-between; margin-bottom:8px}
+.cal-title{font-weight:600; font-size:15px}
+.cal-nav{
+  width:40px; height:40px; border:none; background:transparent; border-radius:10px;
+  font-size:24px; line-height:1; color:var(--teal-700); cursor:pointer;
 }
-.week-cell{display:flex; flex-direction:column; align-items:center; gap:4px}
-.week-dow{font-size:11px; color:var(--muted)}
-.week-num{font-size:11px; color:var(--ink-2)}
-.week-dot{
-  width:100%; aspect-ratio:1; border-radius:12px; border:1.5px solid var(--line);
-  background:#eef2f1; display:flex; align-items:center; justify-content:center;
-  font-size:15px;
+.cal-nav:active{background:var(--teal-50, #e8f4f1)}
+.cal-weekdays{
+  display:grid; grid-template-columns:repeat(7,1fr); gap:3px;
+  text-align:center; font-size:11px; color:var(--muted); margin-bottom:4px;
 }
-.week-dot.c-teal{background:#bfe8de; border-color:var(--teal-300)}
-.week-dot.c-amber{background:var(--amber-100); border-color:#ecd093}
-.week-dot.c-rose{background:var(--rose-200); border-color:var(--rose-400)}
-.week-dot.c-none{background:#f2f6f5; border-color:#cfdcd8; color:#9bb3ae}
-.dot.c-none{background:#dde7e4}
-.week-band{width:80%; height:5px; border-radius:3px; background:#eef2f1}
-.week-band.band-period{background:var(--rose-600)}
-.week-band.band-ovu{background:var(--teal-500)}
-.week-band.band-luteal{background:var(--luteal)}
-.week-band.band-follic{background:var(--follic)}
+.cal-grid{display:grid; grid-template-columns:repeat(7,1fr); gap:3px; margin-bottom:12px}
+.cal-cell{
+  position:relative; aspect-ratio:1; min-height:38px;
+  border:1px solid transparent; border-radius:9px; background:#f2f4f3;
+  display:flex; align-items:center; justify-content:center;
+  font-size:13px; color:var(--ink); padding:0; cursor:pointer; overflow:hidden;
+}
+.cal-cell.is-empty{background:transparent; cursor:default}
+.cal-cell.is-today{border-color:var(--teal-700); box-shadow:inset 0 0 0 1px var(--teal-700)}
+.cal-cell.c-teal{background:#bfe8de}
+.cal-cell.c-amber{background:var(--amber-100)}
+.cal-cell.c-rose{background:var(--rose-200)}
+.cal-cell.c-none{background:#f2f6f5; color:#9bb3ae}
+.cal-dots{position:absolute; top:2px; right:3px; display:flex; gap:2px}
+.cal-dot{width:4px; height:4px; border-radius:50%; background:rgba(0,0,0,.38)}
+.cal-corner{
+  position:absolute; right:4px; bottom:6px;
+  width:5px; height:5px; border-radius:50%; background:var(--teal-700);
+}
+.cal-band{position:absolute; left:0; right:0; bottom:0; height:3px; background:transparent}
+.cal-band.band-period{background:var(--rose-600)}
+.cal-band.band-ovu{background:var(--teal-500)}
+.cal-band.band-luteal{background:var(--luteal)}
+.cal-band.band-follic{background:var(--follic)}
+.cal-band.is-predicted{opacity:.35}
 .legend{display:flex; flex-wrap:wrap; gap:10px 14px; font-size:12px; color:var(--ink-2)}
 .dot{display:inline-block; width:10px; height:10px; border-radius:50%; margin-right:4px; vertical-align:-1px}
 .dot.c-teal{background:#bfe8de} .dot.c-amber{background:#ecd093}
-.dot.c-rose{background:var(--rose-200)} .dot.c-gray{background:#eef2f1}
+.dot.c-rose{background:var(--rose-200)} .dot.c-none{background:#dde7e4}
+.dot.c-gray{background:#eef2f1}
 .stage-legend{margin:10px 0 0; font-size:12px}
 .band{display:inline-block; width:18px; height:8px; border-radius:3px; margin:0 3px 0 8px; vertical-align:0}
 .band-period{background:var(--rose-600)} .band-ovu{background:var(--teal-500)}

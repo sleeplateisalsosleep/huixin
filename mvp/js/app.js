@@ -365,47 +365,101 @@
   var listShown = LIST_PAGE;
 
   function renderTrend() {
-    renderSevenGrid();
+    renderCalendar();
     renderRecordList();
   }
 
-  /* 最近七次：只放真实打卡，从旧到新；未打卡日子不占位 */
-  function renderSevenGrid() {
-    var grid = $('#weekGrid');
-    grid.innerHTML = '';
-    var dows = ['日', '一', '二', '三', '四', '五', '六'];
-    var last7 = entries.slice().sort(function (a, b) {
-      return a.date < b.date ? -1 : (a.date > b.date ? 1 : 0);
-    }).slice(-7);
+  /* ---------------- 日历视图 ----------------
+     可翻月；打卡日=情绪主色底 + 情绪点 + 身体/日记角标；
+     每天底边周期色带（有记录优先用打卡快照 phase，
+     今天之后为预测带，降透明度显示） */
+  var calYear = null, calMonth = null; // calMonth: 0-11
+
+  function renderCalendar() {
+    var now = new Date();
+    if (calYear === null) { calYear = now.getFullYear(); calMonth = now.getMonth(); }
+    var y = calYear, m = calMonth;
     var today = todayIso();
 
-    if (last7.length === 0) {
-      grid.innerHTML =
-        '<div class="empty" style="grid-column:1/-1;padding:18px 10px">' +
-        '还没有记录，完成第一次打卡后，<br>这里会显示最近七次情绪。</div>';
-      return;
+    $('#calTitle').textContent = y + '年' + (m + 1) + '月';
+
+    var first = new Date(y, m, 1);
+    var startDow = (first.getDay() + 6) % 7; // 周一=0
+    var daysInMonth = new Date(y, m + 1, 0).getDate();
+
+    var byDate = {};
+    entries.forEach(function (r) { byDate[r.date] = r; });
+    var monthCount = 0;
+
+    var grid = $('#calGrid');
+    grid.innerHTML = '';
+
+    function appendEmpty() {
+      var el = document.createElement('div');
+      el.className = 'cal-cell is-empty';
+      el.setAttribute('aria-hidden', 'true');
+      grid.appendChild(el);
     }
 
-    last7.forEach(function (rec) {
-      var d = new Date(rec.date + 'T00:00:00');
-      var color = moodColorOf(rec.moodTags);
-      var dotCls = color || 'c-none'; // 打了卡但未选情绪 → 中性描边，区别于无格
-      var stage = rec.phase;
-      if (!stage && isOnboarded()) {
-        stage = Cycle.cycleInfo(settings.lastPeriod, settings.cycleLen, d).stage;
+    for (var i = 0; i < startDow; i++) appendEmpty();
+
+    for (var d = 1; d <= daysInMonth; d++) {
+      var mm = String(m + 1), dd = String(d);
+      if (mm.length < 2) mm = '0' + mm;
+      if (dd.length < 2) dd = '0' + dd;
+      var dateStr = y + '-' + mm + '-' + dd;
+
+      var rec = byDate[dateStr];
+      var cls = 'cal-cell';
+      var color = '';
+      var dots = '';
+      var corner = '';
+      var ariaExtra = '未打卡';
+
+      if (rec) {
+        monthCount++;
+        color = moodColorOf(rec.moodTags);
+        cls += color ? ' ' + color : ' c-none';
+        var n = Math.min(rec.moodTags.length, 3);
+        for (var k = 0; k < n; k++) dots += '<i class="cal-dot"></i>';
+        var realBody = rec.bodyTags.filter(function (t) { return t !== '无不适'; });
+        if (realBody.length > 0 || rec.note) corner = '<i class="cal-corner" title="有身体感受或日记"></i>';
+        ariaExtra = color ? '已打卡' : '已打卡·未选情绪';
       }
+
+      // 周期阶段：有记录优先快照；未设置周期则中性带
+      var stage = '';
+      if (isOnboarded()) {
+        stage = (rec && rec.phase) ? rec.phase : Cycle.stageAtDate(settings.lastPeriod, settings.cycleLen, dateStr);
+      }
+      var band = bandClass(stage || '');
+      var isFuture = dateStr > today;
+      if (isFuture && !rec) ariaExtra = '预测·' + (band ? stage : '普通日');
+
       var cell = document.createElement('button');
       cell.type = 'button';
-      cell.className = 'week-cell';
-      cell.setAttribute('data-date', rec.date);
+      cell.className = cls;
+      cell.setAttribute('data-date', dateStr);
+      cell.setAttribute('aria-label', (m + 1) + '月' + d + '日，' + (stage || '周期未设置') + '，' + ariaExtra);
       cell.innerHTML =
-        '<span class="week-dow">' + (rec.date === today ? '今天' : dows[d.getDay()]) + '</span>' +
-        '<div class="week-dot ' + dotCls + '">' + (color ? '♥' : '♡') + '</div>' +
-        '<span class="week-num">' + (d.getMonth() + 1) + '/' + d.getDate() + '</span>' +
-        '<span class="week-band ' + bandClass(stage || '') + '"></span>';
-      cell.addEventListener('click', function () { openRecordSheet(rec.date); });
+        '<span class="cal-day">' + d + '</span>' +
+        (dots ? '<span class="cal-dots">' + dots + '</span>' : '') +
+        corner +
+        '<span class="cal-band ' + band + (isFuture && band ? ' is-predicted' : '') + '"></span>';
+      if (dateStr === today) cell.classList.add('is-today');
       grid.appendChild(cell);
-    });
+    }
+
+    while ((startDow + daysInMonth) % 7 !== 0) appendEmpty();
+
+    $('#calCount').textContent = monthCount ? '本月打卡 ' + monthCount + ' 次' : '';
+  }
+
+  function changeMonth(dir) {
+    calMonth += dir;
+    if (calMonth < 0) { calMonth = 11; calYear--; }
+    if (calMonth > 11) { calMonth = 0; calYear++; }
+    renderCalendar();
   }
 
   function recordItemHTML(r) {
@@ -704,6 +758,20 @@
     $('#loadMoreBtn').addEventListener('click', function () {
       listShown += LIST_PAGE;
       renderRecordList();
+    });
+
+    /* 日历：翻月 + 格子点击详情 */
+    $('#calPrev').addEventListener('click', function () { changeMonth(-1); });
+    $('#calNext').addEventListener('click', function () { changeMonth(1); });
+    $('#calGrid').addEventListener('click', function (e) {
+      var cell = e.target.closest('.cal-cell[data-date]');
+      if (!cell) return;
+      var date = cell.getAttribute('data-date');
+      if (date > todayIso() && !findEntry(date)) {
+        toast('这一天还没到，先记录今天吧');
+        return;
+      }
+      openRecordSheet(date);
     });
   }
 

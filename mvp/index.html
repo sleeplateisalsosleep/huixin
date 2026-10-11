@@ -115,16 +115,26 @@
 
   <!-- ============ 趋势 ============ -->
   <section class="view" id="view-trend" data-view="trend" hidden>
-    <h2 class="view-title">最近七次</h2>
-    <div class="card" id="weekCard">
-      <div class="week-grid" id="weekGrid"></div>
+    <h2 class="view-title">日历 <span class="muted small" id="calCount"></span></h2>
+    <div class="card" id="calCard">
+      <div class="cal-head">
+        <button type="button" class="cal-nav" id="calPrev" aria-label="上个月">‹</button>
+        <span class="cal-title" id="calTitle"></span>
+        <button type="button" class="cal-nav" id="calNext" aria-label="下个月">›</button>
+      </div>
+      <div class="cal-weekdays">
+        <span>一</span><span>二</span><span>三</span><span>四</span>
+        <span>五</span><span>六</span><span>日</span>
+      </div>
+      <div class="cal-grid" id="calGrid"></div>
       <div class="legend">
         <span><i class="dot c-teal"></i>平静/开心</span>
         <span><i class="dot c-amber"></i>焦虑/烦躁</span>
         <span><i class="dot c-rose"></i>低落/疲惫</span>
         <span><i class="dot c-none"></i>已打卡·未选情绪</span>
       </div>
-      <p class="stage-legend muted">色块下方色带：<i class="band band-period"></i>经期 <i class="band band-ovu"></i>排卵 <i class="band band-luteal"></i>黄体/经前 <i class="band band-follic"></i>卵泡</p>
+      <p class="stage-legend muted">格子底边色带：<i class="band band-period"></i>经期 <i class="band band-ovu"></i>排卵 <i class="band band-luteal"></i>黄体/经前 <i class="band band-follic"></i>卵泡</p>
+      <p class="muted small">今天之后的色带为周期预测，仅供参考。</p>
     </div>
 
     <h2 class="view-title">历史记录 <span class="muted small" id="trendCount"></span></h2>
