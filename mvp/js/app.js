@@ -127,53 +127,53 @@
     (values || []).forEach(function (v) { arr.push(v); });
   }
 
-  /* 用户自定义标签（localStorage 持久化，key 与预设分开） */
+  /* 预设情绪白名单：仅这些值参与选择回显与趋势着色，
+     旧版本遗留的自定义情绪字符串不报错，但不再展示、不再着色 */
+  var KNOWN_MOODS = { '焦虑': 1, '低落': 1, '烦躁': 1, '疲惫': 1, '平静': 1, '开心': 1 };
+
+  /* 用户自定义身体感受（localStorage 持久化）；旧数据可能含 mood 键，保留但不再使用 */
   var K_CUSTOM = 'hx_mvp_custom';
-  var customTags = readJSON(K_CUSTOM, { mood: [], body: [] });
+  var customTags = readJSON(K_CUSTOM, { body: [] });
   function saveCustomTags() { writeJSON(K_CUSTOM, customTags); }
 
-  function renderCustomChips(kind) {
-    var box = $('#' + (kind === 'mood' ? 'moodChips' : 'bodyChips'));
+  function renderCustomChips() {
+    var box = $('#bodyChips');
     if (!box) return;
     // 清掉旧自定义 chip（保留预设与「自定义」按钮）
     $all('.chip[data-custom]', box).forEach(function (c) { c.parentNode.removeChild(c); });
-    var addBtn = $('.chip-add[data-kind="' + kind + '"]', box);
-    var sel = kind === 'mood' ? selMood : selBody;
-    (customTags[kind] || []).forEach(function (v) {
+    var addBtn = $('.chip-add', box);
+    (customTags.body || []).forEach(function (v) {
       var b = document.createElement('button');
       b.type = 'button';
       b.className = 'chip';
       b.setAttribute('data-v', v);
       b.setAttribute('data-custom', '1');
       b.textContent = v;
-      if (sel.indexOf(v) >= 0) b.classList.add('is-on');
+      if (selBody.indexOf(v) >= 0) b.classList.add('is-on');
       box.insertBefore(b, addBtn);
     });
   }
 
-  function addCustomTag(kind) {
-    var input = $(kind === 'mood' ? '#moodCustomInput' : '#bodyCustomInput');
+  function addCustomTag() {
+    var input = $('#bodyCustomInput');
     var v = (input.value || '').trim().replace(/[<>&"']/g, '');
     if (!v) { toast('请输入内容'); return; }
     if (v.length > 6) { toast('不超过 6 个字'); return; }
-    var sel = kind === 'mood' ? selMood : selBody;
-    // 与预设查重
-    var exists = $all('.chip', $(kind === 'mood' ? '#moodChips' : '#bodyChips')).some(function (c) {
+    // 与预设及已有自定义查重
+    var exists = $all('.chip', $('#bodyChips')).some(function (c) {
       return c.getAttribute('data-v') === v;
     });
     if (exists) { toast('「' + v + '」已存在'); return; }
-    customTags[kind] = customTags[kind] || [];
-    customTags[kind].push(v);
+    customTags.body = customTags.body || [];
+    customTags.body.push(v);
     saveCustomTags();
-    // 新标签自动选中
-    if (kind === 'body') {
-      var i = selBody.indexOf('无不适');
-      if (i >= 0) selBody.splice(i, 1);
-    }
-    sel.push(v);
+    // 新标签自动选中，并与「无不适」互斥
+    var i = selBody.indexOf('无不适');
+    if (i >= 0) selBody.splice(i, 1);
+    selBody.push(v);
     input.value = '';
-    $(kind === 'mood' ? '#moodCustomRow' : '#bodyCustomRow').hidden = true;
-    renderCustomChips(kind);
+    $('#bodyCustomRow').hidden = true;
+    renderCustomChips();
   }
 
   function bindChips(containerId, store, afterToggle) {
@@ -181,12 +181,11 @@
     box.addEventListener('click', function (e) {
       var btn = e.target.closest('.chip');
       if (!btn) return;
-      // 「自定义」按钮打开输入框
+      // 「自定义」按钮打开身体感受输入框（仅身体区存在）
       if (btn.classList.contains('chip-add')) {
-        var kind = btn.getAttribute('data-kind');
-        var row = $(kind === 'mood' ? '#moodCustomRow' : '#bodyCustomRow');
+        var row = $('#bodyCustomRow');
         row.hidden = !row.hidden;
-        if (!row.hidden) $(kind === 'mood' ? '#moodCustomInput' : '#bodyCustomInput').focus();
+        if (!row.hidden) $('#bodyCustomInput').focus();
         return;
       }
       var v = btn.getAttribute('data-v');
@@ -228,8 +227,7 @@
     var e = findEntry(todayIso());
     resetSel(selMood, e ? e.moodTags : []);
     resetSel(selBody, e ? e.bodyTags : []);
-    renderCustomChips('mood');
-    renderCustomChips('body');
+    renderCustomChips();
     syncChipUI($('#moodChips'), selMood);
     syncChipUI($('#bodyChips'), selBody);
     $('#noteInput').value = e ? (e.note || '') : '';
@@ -248,7 +246,7 @@
     var info = Cycle.cycleInfo(settings.lastPeriod, settings.cycleLen || 28, new Date());
     var rec = {
       date: date,
-      moodTags: selMood.slice(),
+      moodTags: selMood.filter(function (m) { return KNOWN_MOODS[m]; }),
       bodyTags: selBody.slice(),
       note: $('#noteInput').value.trim().slice(0, 200),
       phase: info && !info.future ? info.stage : '',
@@ -339,20 +337,18 @@
   function closeFeedback() { $('#feedbackMask').hidden = true; }
 
   /* ---------------- 趋势 ---------------- */
-  /* 情绪→颜色：消极红、焦虑橙、积极绿、自定义粉绿混合 */
-  var KNOWN_MOODS = { '焦虑': 1, '低落': 1, '烦躁': 1, '疲惫': 1, '平静': 1, '开心': 1 };
+  /* 情绪→颜色：低落/疲惫 rose、焦虑/烦躁 amber、平静/开心 teal；
+     未知（旧版自定义）情绪不参与着色，按"未选情绪"中性显示 */
   function moodColorOf(tags) {
     if (!tags || tags.length === 0) return '';
-    var hasNeg = false, hasAnx = false, hasPos = false, hasCustom = false;
+    var hasNeg = false, hasAnx = false, hasPos = false;
     tags.forEach(function (t) {
       if (t === '低落' || t === '疲惫') hasNeg = true;
       else if (t === '焦虑' || t === '烦躁') hasAnx = true;
       else if (t === '平静' || t === '开心') hasPos = true;
-      else if (!KNOWN_MOODS[t]) hasCustom = true;
     });
     if (hasNeg) return 'c-rose';
     if (hasAnx) return 'c-amber';
-    if (hasCustom) return 'c-mix';   /* 自定义 → 粉绿混合 */
     if (hasPos) return 'c-teal';
     return '';
   }
@@ -646,7 +642,7 @@
     localStorage.removeItem(K_ENTRIES);
     localStorage.removeItem(K_CUSTOM);
     settings = null; entries = [];
-    customTags = { mood: [], body: [] };
+    customTags = { body: [] };
     listShown = LIST_PAGE;
     $('#noteInput').value = '';
     toast('本地数据已清除');
@@ -689,14 +685,10 @@
       searchTimer = setTimeout(function () { kbQuery = v; renderKnowledge(); }, 180);
     });
 
-    /* 自定义标签输入 */
-    $('#moodCustomAdd').addEventListener('click', function () { addCustomTag('mood'); });
-    $('#moodCustomInput').addEventListener('keydown', function (e) {
-      if (e.key === 'Enter') { e.preventDefault(); addCustomTag('mood'); }
-    });
-    $('#bodyCustomAdd').addEventListener('click', function () { addCustomTag('body'); });
+    /* 自定义身体感受输入 */
+    $('#bodyCustomAdd').addEventListener('click', function () { addCustomTag(); });
     $('#bodyCustomInput').addEventListener('keydown', function (e) {
-      if (e.key === 'Enter') { e.preventDefault(); addCustomTag('body'); }
+      if (e.key === 'Enter') { e.preventDefault(); addCustomTag(); }
     });
 
     $('#setSave').addEventListener('click', saveSettingsForm);
