@@ -6,7 +6,7 @@
    - 其余同源 GET 走 cache-first
    作用域：/huixin/mvp/（由注册路径自动限定，与主站隔离）
    ============================================================ */
-var CACHE = 'hx-mvp-v6';
+var CACHE = 'hx-mvp-v7';
 var ASSETS = [
   './',
   './index.html',
@@ -15,12 +15,7 @@ var ASSETS = [
   './js/cycle.js',
   './assets/knowledge.json',
   './manifest.webmanifest',
-  './icons/icon.svg',
-  './icons/logo.png',
-  './icons/icon-192.png',
-  './icons/icon-512.png',
-  './icons/icon-512-maskable.png',
-  './icons/apple-touch-icon-180.png'
+  './icons/logo.png'
 ];
 var KB_PATH = '/assets/knowledge.json';
 
