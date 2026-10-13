@@ -9,6 +9,8 @@
 """
 import json
 import os
+import re
+import secrets
 import smtplib
 import ssl
 from datetime import datetime, timedelta
@@ -389,12 +391,18 @@ def create_app():
 
     @app.post('/api/auth/login')
     def login():
-        """用户名 + 密码登录（保留作为兼容入口）。"""
+        """用户名 + 密码登录（保留作为兼容入口）。
+        昵称已允许重名，命中多个同名账号时请改用邮箱登录。"""
         p = request.get_json(silent=True) or {}
         name = str(p.get('name', '')).strip()
         pwd = str(p.get('password', ''))
-        row = get_db().execute('SELECT * FROM users WHERE name = ?', (name,)).fetchone()
-        if row is None or not row['pwd_hash'] or not verify_password(pwd, row['pwd_hash']):
+        rows = get_db().execute(
+            'SELECT * FROM users WHERE name = ? AND pwd_hash IS NOT NULL',
+            (name,)).fetchall()
+        if len(rows) > 1:
+            return err('该昵称存在多个账号，请使用邮箱登录', 401)
+        row = rows[0] if rows else None
+        if row is None or not verify_password(pwd, row['pwd_hash']):
             return err('用户名或密码不正确', 401)
         token = create_session(row['id'])
         return jsonify({'token': token, 'user': user_public(row)})
@@ -432,7 +440,10 @@ def create_app():
         password = str(p.get('password', ''))
         code = str(p.get('code', '')).strip()
         db = get_db()
-        if password:
+        if u['is_guest']:
+            # 游客无邮箱/密码，持有有效会话即视为设备持有者，免二次验证
+            pass
+        elif password:
             if not u['pwd_hash'] or not verify_password(password, u['pwd_hash']):
                 return err('密码不正确', 401)
         elif code:
@@ -448,6 +459,8 @@ def create_app():
         if email:
             db.execute('DELETE FROM email_codes WHERE email = ?', (email,))
         db.execute('DELETE FROM assessments WHERE user_id = ?', (uid,))
+        db.execute('DELETE FROM mood_summaries WHERE user_id = ?', (uid,))
+        db.execute('DELETE FROM meditation_summaries WHERE user_id = ?', (uid,))
         db.execute('UPDATE feedback SET user_id = NULL WHERE user_id = ?', (uid,))
         db.execute('UPDATE clicks SET user_id = NULL WHERE user_id = ?', (uid,))
         db.execute("UPDATE cards SET author_id = NULL WHERE author_id = ? AND status = 'approved'",
@@ -466,6 +479,87 @@ def create_app():
     def me():
         u = current()
         return jsonify({'user': user_public(u) if u else None})
+
+    # ================= 游客（匿名）登录 + 原地绑定邮箱 =================
+    DEVICE_RE = re.compile(r'^[A-Za-z0-9_-]{8,64}$')
+
+    @app.post('/api/auth/guest')
+    def guest_login():
+        """游客登录：同一 device_id 幂等返回同一游客账号；首次访问自动建号。
+        游客无邮箱、无密码，昵称仅作展示，允许重名。"""
+        p = request.get_json(silent=True) or {}
+        device_id = str(p.get('device_id', '')).strip()
+        name = str(p.get('name', '')).strip()
+        if not DEVICE_RE.match(device_id):
+            return err('设备标识无效')
+        if name and not valid_name(name):
+            return err('昵称需为 2～16 位中文、字母、数字或下划线')
+        db = get_db()
+        row = db.execute(
+            'SELECT * FROM users WHERE device_id = ? AND is_guest = 1',
+            (device_id,)).fetchone()
+        is_new = False
+        if row is None:
+            if not name:
+                name = '用户_' + secrets.token_hex(3)
+            cur = db.execute(
+                """INSERT INTO users (uuid, name, email, pwd_hash, role,
+                                      is_guest, device_id, created_at)
+                   VALUES (?,?,?,?,?,?,?,?)""",
+                (secrets.token_hex(16), name, None, None, 'user',
+                 1, device_id, now_iso()))
+            db.commit()
+            row = db.execute('SELECT * FROM users WHERE id = ?',
+                             (cur.lastrowid,)).fetchone()
+            is_new = True
+        token = create_session(row['id'])
+        return jsonify({'token': token, 'user': user_public(row), 'is_new': is_new})
+
+    @app.post('/api/auth/bind-email')
+    def bind_email():
+        """路径A（核心）：游客原地绑定邮箱。
+        仅 UPDATE 当前行的邮箱/密码/游客标记，id 与 uuid 均不变，
+        现有会话继续有效，本地数据无需迁移。"""
+        u = require_user()
+        if not u['is_guest']:
+            return err('当前账号已绑定邮箱，无需重复绑定')
+        p = request.get_json(silent=True) or {}
+        email = str(p.get('email', '')).strip().lower()
+        code = str(p.get('code', '')).strip()
+        password = str(p.get('password', ''))
+        if not valid_email(email):
+            return err('请输入正确的邮箱地址')
+        if len(password) < 6:
+            return err('请设置至少 6 位密码，用于日后邮箱登录')
+        db = get_db()
+        if db.execute('SELECT id FROM users WHERE email = ?', (email,)).fetchone():
+            return err('该邮箱已注册，请直接登录或更换邮箱')
+        fail = _consume_code(db, email, code)
+        if fail:
+            return fail
+        # 关键：原地更新，不新建用户、不换 id
+        db.execute(
+            'UPDATE users SET email = ?, pwd_hash = ?, is_guest = 0, '
+            'device_id = NULL WHERE id = ?',
+            (email, hash_password(password), u['id']))
+        db.commit()
+        row = db.execute('SELECT * FROM users WHERE id = ?', (u['id'],)).fetchone()
+        return jsonify({'token': get_token() or create_session(u['id']),
+                        'user': user_public(row)})
+
+    @app.post('/api/auth/profile')
+    def update_profile():
+        """修改展示昵称（登录用户均可，含游客；昵称允许与他人重名）。"""
+        u = require_user()
+        p = request.get_json(silent=True) or {}
+        name = str(p.get('name', '')).strip()
+        if not valid_name(name):
+            return err('昵称需为 2～16 位中文、字母、数字或下划线')
+        db = get_db()
+        db.execute('UPDATE users SET name = ? WHERE id = ?', (name, u['id']))
+        db.commit()
+        row = db.execute('SELECT * FROM users WHERE id = ?', (u['id'],)).fetchone()
+        return jsonify({'user': user_public(row)})
 
     # ================= 科普卡（公开） =================
     @app.get('/api/cards')

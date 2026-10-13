@@ -51,10 +51,35 @@
   const USERS_KEY = 'hx_users';
   const SESSION_KEY = 'hx_session';
   const CODES_KEY = 'hx_email_codes';
+  const DEVICE_KEY = 'hx_device_id';
   const ADMIN_NAME = 'admin';
   const ADMIN_PWD = 'Huixin@2026';
   const ADMIN_EMAIL = 'admin@huixin.local';
   const EMAIL_RE = /^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/;
+  const NAME_RE = /^[一-龥A-Za-z0-9_]{2,16}$/;
+  const DEVICE_RE = /^[A-Za-z0-9_-]{8,64}$/;
+
+  function genUuid() {
+    if (window.crypto && typeof window.crypto.randomUUID === 'function') {
+      return window.crypto.randomUUID();
+    }
+    return 'g' + Date.now().toString(36) + Math.random().toString(36).slice(2, 12);
+  }
+
+  /* 设备标识：游客账号在同一设备上幂等找回（清空浏览器数据后会生成新的） */
+  function getDeviceId() {
+    let id = LS.get(DEVICE_KEY, '');
+    if (typeof id !== 'string' || !DEVICE_RE.test(id)) {
+      id = genUuid();
+      LS.set(DEVICE_KEY, id);
+    }
+    return id;
+  }
+
+  /* 远程用户为 is_guest/created_at，本地用户为 isGuest/createdAt，统一判定 */
+  function isGuestUser(u) {
+    return !!(u && (u.is_guest === true || u.isGuest === true));
+  }
 
   function makeSalt() {
     return Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
@@ -83,15 +108,18 @@
     if (!Array.isArray(users)) {
       const salt = makeSalt();
       users = [{
-        name: ADMIN_NAME, email: ADMIN_EMAIL, role: 'admin', salt: salt,
+        uuid: genUuid(), name: ADMIN_NAME, email: ADMIN_EMAIL, role: 'admin',
+        isGuest: false, salt: salt,
         pwdHash: hashPwd(ADMIN_PWD, salt), createdAt: new Date().toISOString()
       }];
       LS.set(USERS_KEY, users);
     } else {
-      // 给旧版管理员补 email
+      // 旧版数据补全：管理员 email、所有用户 uuid/游客标记
       let changed = false;
       users.forEach((u) => {
         if (u.name === ADMIN_NAME && !u.email) { u.email = ADMIN_EMAIL; changed = true; }
+        if (!u.uuid) { u.uuid = genUuid(); changed = true; }
+        if (typeof u.isGuest !== 'boolean') { u.isGuest = false; changed = true; }
       });
       if (changed) LS.set(USERS_KEY, users);
     }
@@ -108,9 +136,21 @@
     return Array.isArray(users) ? users.filter((u) => u.email === email)[0] || null : null;
   }
 
+  function findUserByUuid(uuid) {
+    const users = LS.get(USERS_KEY, []);
+    return Array.isArray(users) ? users.filter((u) => u.uuid === uuid)[0] || null : null;
+  }
+
   function currentUser() {
     const sess = LS.get(SESSION_KEY, null);
-    return sess && sess.name ? findUser(sess.name) : null;
+    if (sess && sess.uuid) return findUserByUuid(sess.uuid);
+    // 兼容旧版会话 {name}：找到后就地升级为 uuid 会话（改名也不掉登录）
+    if (sess && sess.name) {
+      const u = findUser(sess.name);
+      if (u) LS.set(SESSION_KEY, { uuid: u.uuid });
+      return u;
+    }
+    return null;
   }
 
   /* 数据层：发送验证码（本地模式直接返回明文验证码） */
@@ -166,13 +206,13 @@
       const salt = makeSalt();
       const users = LS.get(USERS_KEY, []);
       u = {
-        name: name, email: email, role: 'user', salt: salt,
-        pwdHash: hashPwd(pwd, salt), createdAt: new Date().toISOString()
+        uuid: genUuid(), name: name, email: email, role: 'user', isGuest: false,
+        salt: salt, pwdHash: hashPwd(pwd, salt), createdAt: new Date().toISOString()
       };
       users.push(u);
       LS.set(USERS_KEY, users);
     }
-    LS.set(SESSION_KEY, { name: u.name });
+    LS.set(SESSION_KEY, { uuid: u.uuid });
     return { ok: true, user: u };
   }
 
@@ -185,7 +225,7 @@
     if (!u.pwdHash || u.pwdHash !== hashPwd(String(pwd || ''), u.salt)) {
       return { ok: false, msg: '邮箱或密码不正确' };
     }
-    LS.set(SESSION_KEY, { name: u.name });
+    LS.set(SESSION_KEY, { uuid: u.uuid });
     return { ok: true, user: u };
   }
 
@@ -201,28 +241,101 @@
     u.salt = makeSalt();
     u.pwdHash = hashPwd(pwd, u.salt);
     const users = LS.get(USERS_KEY, []);
-    for (let i = 0; i < users.length; i++) if (users[i].name === u.name) users[i] = u;
+    for (let i = 0; i < users.length; i++) if (users[i].uuid === u.uuid) users[i] = u;
     LS.set(USERS_KEY, users);
-    LS.set(SESSION_KEY, { name: u.name });
+    LS.set(SESSION_KEY, { uuid: u.uuid });
+    return { ok: true, user: u };
+  }
+
+  /* 数据层：游客登录（本地模式）：同一设备幂等找回，首次自动建号 */
+  function localGuestLogin(deviceId, name) {
+    deviceId = String(deviceId || '').trim();
+    if (!DEVICE_RE.test(deviceId)) return { ok: false, msg: '设备标识无效' };
+    name = String(name || '').trim();
+    if (name && !NAME_RE.test(name)) {
+      return { ok: false, msg: '昵称需为 2～16 位中文、字母、数字或下划线' };
+    }
+    const users = LS.get(USERS_KEY, []);
+    let u = users.filter((x) => x.isGuest && x.deviceId === deviceId)[0] || null;
+    let isNew = false;
+    if (!u) {
+      if (!name) name = '用户_' + Math.random().toString(36).slice(2, 8);
+      u = {
+        uuid: genUuid(), name: name, email: '', role: 'user', isGuest: true,
+        deviceId: deviceId, salt: '', pwdHash: '',
+        createdAt: new Date().toISOString()
+      };
+      users.push(u);
+      LS.set(USERS_KEY, users);
+      isNew = true;
+    }
+    LS.set(SESSION_KEY, { uuid: u.uuid });
+    return { ok: true, user: u, isNew: isNew };
+  }
+
+  /* 数据层：游客原地绑定邮箱（本地模式）：uuid 不变，仅补邮箱与密码 */
+  function localBindEmail(email, code, pwd) {
+    email = String(email || '').trim().toLowerCase();
+    if (!EMAIL_RE.test(email)) return { ok: false, msg: '请输入正确的邮箱地址' };
+    if (String(pwd || '').length < 6) {
+      return { ok: false, msg: '请设置至少 6 位密码，用于日后邮箱登录' };
+    }
+    const u = currentUser();
+    if (!u) return { ok: false, msg: '登录状态已失效，请重新登录' };
+    if (!u.isGuest) return { ok: false, msg: '当前账号已绑定邮箱，无需重复绑定' };
+    if (findUserByEmail(email)) return { ok: false, msg: '该邮箱已注册，请直接登录或更换邮箱' };
+    const chk = localConsumeCode(email, code);
+    if (!chk.ok) return chk;
+    const users = LS.get(USERS_KEY, []);
+    for (let i = 0; i < users.length; i++) {
+      if (users[i].uuid === u.uuid) {
+        users[i].email = email;
+        users[i].salt = makeSalt();
+        users[i].pwdHash = hashPwd(pwd, users[i].salt);
+        users[i].isGuest = false;
+        delete users[i].deviceId;
+        Object.assign(u, users[i]);
+        break;
+      }
+    }
+    LS.set(USERS_KEY, users);
+    LS.set(SESSION_KEY, { uuid: u.uuid });
+    return { ok: true, user: u };
+  }
+
+  /* 数据层：修改昵称（本地模式，允许重名） */
+  function localUpdateProfile(name) {
+    name = String(name || '').trim();
+    if (!NAME_RE.test(name)) {
+      return { ok: false, msg: '昵称需为 2～16 位中文、字母、数字或下划线' };
+    }
+    const u = currentUser();
+    if (!u) return { ok: false, msg: '登录状态已失效，请重新登录' };
+    const users = LS.get(USERS_KEY, []);
+    for (let i = 0; i < users.length; i++) {
+      if (users[i].uuid === u.uuid) { users[i].name = name; u.name = name; break; }
+    }
+    LS.set(USERS_KEY, users);
     return { ok: true, user: u };
   }
 
   /* 数据层：注册 */
   function register(name, pwd) {
     name = String(name || '').trim();
-    if (!/^[一-龥A-Za-z0-9_]{2,16}$/.test(name)) {
+    if (!NAME_RE.test(name)) {
       return { ok: false, msg: '用户名需为 2～16 位中文、字母、数字或下划线' };
     }
     if (String(pwd || '').length < 6) return { ok: false, msg: '密码至少需要 6 位' };
     if (findUser(name)) return { ok: false, msg: '该用户名已被注册' };
     const users = LS.get(USERS_KEY, []);
     const salt = makeSalt();
-    users.push({
-      name: name, role: 'user', salt: salt,
-      pwdHash: hashPwd(pwd, salt), createdAt: new Date().toISOString()
-    });
+    const u = {
+      uuid: genUuid(), name: name, email: '', role: 'user', isGuest: false,
+      salt: salt, pwdHash: hashPwd(pwd, salt), createdAt: new Date().toISOString()
+    };
+    users.push(u);
     LS.set(USERS_KEY, users);
-    LS.set(SESSION_KEY, { name: name });
+    LS.set(SESSION_KEY, { uuid: u.uuid });
     return { ok: true };
   }
 
@@ -232,7 +345,7 @@
     if (!u || u.pwdHash !== hashPwd(String(pwd || ''), u.salt)) {
       return { ok: false, msg: '用户名或密码不正确' };
     }
-    LS.set(SESSION_KEY, { name: u.name });
+    LS.set(SESSION_KEY, { uuid: u.uuid });
     return { ok: true };
   }
 
@@ -245,7 +358,9 @@
     if (u.role === 'admin') return { ok: false, msg: '管理员为系统账号，不支持自助注销' };
     const pwd = String((identity && identity.password) || '');
     const code = String((identity && identity.code) || '').trim();
-    if (pwd) {
+    if (u.isGuest) {
+      // 游客无邮箱/密码，持有当前登录态即视为设备持有者，免二次验证
+    } else if (pwd) {
       if (!u.pwdHash || u.pwdHash !== hashPwd(pwd, u.salt)) {
         return { ok: false, msg: '密码不正确' };
       }
@@ -259,7 +374,7 @@
     const email = u.email;
     // 账号与登录态
     let users = LS.get(USERS_KEY, []);
-    users = users.filter((x) => x.name !== name);
+    users = users.filter((x) => x.uuid !== u.uuid);
     LS.set(USERS_KEY, users);
     LS.remove(SESSION_KEY);
     if (email) LS.set(CODES_KEY, LS.get(CODES_KEY, []).filter((c) => c.email !== email));
@@ -365,6 +480,21 @@
       const r = localDeleteAccount(identity);
       if (!r.ok) throw new Error(r.msg);
       return { ok: true };
+    },
+    async guestLogin(deviceId, name) {
+      const r = localGuestLogin(deviceId, name);
+      if (!r.ok) throw new Error(r.msg);
+      return { user: r.user, isNew: r.isNew };
+    },
+    async bindEmail(email, code, pwd) {
+      const r = localBindEmail(email, code, pwd);
+      if (!r.ok) throw new Error(r.msg);
+      return { user: r.user };
+    },
+    async updateProfile(name) {
+      const r = localUpdateProfile(name);
+      if (!r.ok) throw new Error(r.msg);
+      return { user: r.user };
     },
     async logout() { logout(); },
 
@@ -572,6 +702,28 @@
       token = ''; LS.remove(TOKEN_KEY);
       return { ok: true };
     },
+    guestLogin: async (deviceId, name) => {
+      const r = await api('api/auth/guest', {
+        method: 'POST',
+        body: JSON.stringify({ device_id: deviceId, name: name || '' })
+      });
+      token = r.token; LS.set(TOKEN_KEY, token);
+      return { user: r.user, isNew: !!r.is_new };
+    },
+    bindEmail: async (email, code, pwd) => {
+      const r = await api('api/auth/bind-email', {
+        method: 'POST',
+        body: JSON.stringify({ email: email, code: code, password: pwd })
+      });
+      token = r.token || token; LS.set(TOKEN_KEY, token);
+      return { user: r.user };
+    },
+    updateProfile: async (name) => {
+      const r = await api('api/auth/profile', {
+        method: 'POST', body: JSON.stringify({ name: name })
+      });
+      return { user: r.user };
+    },
     logout: async () => {
       try { await api('api/auth/logout', { method: 'POST' }); } catch (e) { /* 忽略 */ }
       token = ''; LS.remove(TOKEN_KEY);
@@ -656,6 +808,13 @@
   let authTab = 'code';
   let codeTimer = null;
 
+  function roleBadgeHtml(u) {
+    const guest = isGuestUser(u);
+    const cls = guest ? ' guest' : (u.role === 'admin' ? ' admin' : '');
+    const text = guest ? '游客' : (u.role === 'admin' ? '管理员' : '用户');
+    return '<span class="role-badge' + cls + '">' + text + '</span>';
+  }
+
   function renderAuthArea() {
     const box = $('#authArea');
     if (!box) return;
@@ -664,18 +823,81 @@
       box.innerHTML =
         '<button type="button" class="auth-name" id="ucOpenBtn" title="打开用户中心">你好，' +
         esc(u.name) + '</button>' +
-        '<span class="role-badge' + (u.role === 'admin' ? ' admin' : '') + '">' +
-        (u.role === 'admin' ? '管理员' : '用户') + '</span>' +
+        roleBadgeHtml(u) +
         '<button type="button" class="auth-btn" id="logoutBtn">退出</button>';
       $('#logoutBtn').addEventListener('click', doLogout);
       $('#ucOpenBtn').addEventListener('click', openUserCenter);
     } else {
       box.innerHTML =
+        '<button type="button" class="auth-btn" id="navGuest">游客体验</button>' +
         '<button type="button" class="auth-btn" id="navLogin">登录</button>' +
         '<button type="button" class="auth-btn primary" id="navRegister">注册</button>';
+      $('#navGuest').addEventListener('click', doGuestLogin);
       $('#navLogin').addEventListener('click', () => openAuth('login'));
       $('#navRegister').addEventListener('click', () => openAuth('register'));
     }
+  }
+
+  /* 游客登录：同设备幂等；新游客随后弹出起名轻量框 */
+  async function doGuestLogin() {
+    try {
+      const r = await svc.guestLogin(getDeviceId(), '');
+      me = r.user;
+      await applyRoleUI();
+      if (r.isNew) {
+        openGuestName();
+      } else {
+        closeAuth();
+        toast('欢迎回来，' + me.name);
+      }
+    } catch (ex) {
+      toast(ex.message);
+    }
+  }
+
+  /* 新游客起名（可跳过）；昵称仅展示，允许重名，可随时在账号设置修改 */
+  function openGuestName() {
+    const body = $('#authModalBody');
+    body.innerHTML =
+      '<h2 style="margin-bottom:8px">给自己起个名字吧</h2>' +
+      '<p class="auth-note" style="margin-bottom:14px">用于日记和打卡展示，可跳过，之后随时能改。</p>' +
+      '<form class="auth-form" id="guestNameForm" novalidate>' +
+        '<label>昵称' +
+          '<input type="text" id="guestNameInput" maxlength="16" autocomplete="off" placeholder="例如：小雨"></label>' +
+        '<p class="auth-error" id="guestNameError"></p>' +
+        '<button type="submit" class="btn btn-primary">使用这个名字</button>' +
+        '<button type="button" class="btn btn-ghost" id="guestNameSkip">先随便逛逛</button>' +
+      '</form>';
+    $('#authModal').hidden = false;
+    document.body.style.overflow = 'hidden';
+    setTimeout(() => { const el = $('#guestNameInput', body); if (el) el.focus(); }, 0);
+
+    async function finish(name) {
+      const errBox = $('#guestNameError', body);
+      errBox.textContent = '';
+      if (name) {
+        if (!NAME_RE.test(name)) {
+          errBox.textContent = '昵称需为 2～16 位中文、字母、数字或下划线';
+          return;
+        }
+        try {
+          const r = await svc.updateProfile(name);
+          me = r.user;
+          renderAuthArea();
+        } catch (ex) {
+          errBox.textContent = ex.message;
+          return;
+        }
+      }
+      closeAuth();
+      toast('已进入游客体验，数据保存在本设备');
+    }
+
+    $('#guestNameForm', body).addEventListener('submit', (e) => {
+      e.preventDefault();
+      finish($('#guestNameInput', body).value.trim());
+    });
+    $('#guestNameSkip', body).addEventListener('click', () => closeAuth());
   }
 
   function openAuth(tab) {
@@ -767,13 +989,21 @@
         '</form>';
     }
 
+    const guestEntry = authTab === 'reset' ? '' :
+      '<div class="auth-guest-entry">还没有账号？' +
+      '<button type="button" class="link-btn" id="authGuestBtn">先以游客身份体验 →</button>' +
+      '<span class="auth-note" style="display:block;margin-top:4px">游客可随时绑定邮箱，账号不变、数据保留</span></div>';
+
     body.innerHTML =
       '<h2 id="authTitle" style="margin-bottom:16px">' + titles[authTab] + '</h2>' +
       '<div class="auth-tabs">' +
         tabDefs.map((t) =>
           '<button type="button" data-tab="' + t[0] + '"' +
           (authTab === t[0] ? ' class="is-on"' : '') + '>' + t[1] + '</button>').join('') +
-      '</div>' + formHtml;
+      '</div>' + formHtml + guestEntry;
+
+    const guestBtn = $('#authGuestBtn', body);
+    if (guestBtn) guestBtn.addEventListener('click', doGuestLogin);
 
     $$('.auth-tabs button', body).forEach((b) => b.addEventListener('click', () => {
       authTab = b.getAttribute('data-tab');
@@ -941,6 +1171,7 @@
     const body = $('#userModalBody');
     const u = me;
     if (!u) { closeUserCenter(); return; }
+    const guest = isGuestUser(u);
     const isAdmin = u.role === 'admin';
     const email = u.email || '未绑定邮箱';
     const joined = fmtDate(u.created_at || u.createdAt);
@@ -952,21 +1183,38 @@
         '<div class="uc-avatar">' + esc(avatarChar) + '</div>' +
         '<div class="uc-info">' +
           '<div class="uc-name">' + esc(u.name) +
-            '<span class="role-badge' + (isAdmin ? ' admin' : '') + '">' +
-            (isAdmin ? '管理员' : '用户') + '</span></div>' +
-          '<div class="uc-email" title="' + esc(email) + '">' + esc(email) + '</div>' +
+            '<button type="button" class="uc-edit-name" id="ucEditName" title="修改昵称">修改</button>' +
+            roleBadgeHtml(u) + '</div>' +
+          '<div class="uc-email" title="' + esc(email) + '">' +
+            (guest ? '未绑定邮箱' : esc(email)) + '</div>' +
           (joined ? '<div class="uc-email">注册于 ' + joined + '</div>' : '') +
         '</div>' +
       '</div>' +
+      (guest
+        ? '<div class="uc-bind">' +
+            '<h3>绑定邮箱，保存我的账号</h3>' +
+            '<p>你正以<b>游客身份</b>使用，日记与周期记录目前仅保存在本设备，' +
+            '清除浏览器数据后将无法找回。绑定邮箱后<b>账号保持不变、本地数据无缝保留</b>，' +
+            '还能用邮箱在其他设备登录。</p>' +
+            '<button type="button" class="btn btn-primary btn-sm" id="ucBindBtn">绑定邮箱</button>' +
+            '<div id="ucBindPanel" hidden></div>' +
+          '</div>'
+        : '') +
       '<div class="uc-actions">' +
+        '<button type="button" class="btn btn-ghost" id="ucExportBtn">导出我的数据</button>' +
+        '<button type="button" class="btn btn-ghost" id="ucImportBtn">导入备份</button>' +
         '<button type="button" class="btn btn-ghost" id="ucLogoutBtn">退出登录</button>' +
       '</div>' +
+      '<input type="file" id="ucImportFile" accept=".json,.enc,application/json" hidden>' +
+      '<div id="ucExportPanel" hidden></div>' +
+      '<div id="ucImportPanel" hidden></div>' +
       '<div class="uc-danger">' +
         '<h3>注销账号</h3>' +
         (isAdmin
           ? '<p>管理员为系统账号，不支持自助注销。如需停用普通用户账号或调整后台权限，请在数据库中处理。</p>'
           : '<p>注销后将<b>永久删除</b>你的账号、登录凭证、自评历史与投稿记录，且无法恢复；' +
-            '你提交的护理建议反馈会以匿名形式保留。请谨慎操作。</p>' +
+            '你提交的护理建议反馈会以匿名形式保留，<b>本设备上的日记数据不会自动删除</b>。' +
+            '建议注销前先导出数据。</p>' +
             '<button type="button" class="btn btn-danger btn-sm" id="ucDeleteToggle">注销账号</button>' +
             '<div id="ucDeletePanel" hidden></div>') +
       '</div>';
@@ -974,6 +1222,21 @@
     $('#ucLogoutBtn', body).addEventListener('click', async () => {
       closeUserCenter();
       await doLogout();
+    });
+    $('#ucExportBtn', body).addEventListener('click', () => openExportPanel(body));
+    $('#ucImportBtn', body).addEventListener('click', () => $('#ucImportFile', body).click());
+    $('#ucImportFile', body).addEventListener('change', (ev) => {
+      const f = ev.target.files && ev.target.files[0];
+      ev.target.value = '';
+      if (f) handleImportFile(f, body);
+    });
+    $('#ucEditName', body).addEventListener('click', () => renderNameEditor(body));
+
+    const bindBtn = $('#ucBindBtn', body);
+    if (bindBtn) bindBtn.addEventListener('click', () => {
+      bindBtn.hidden = true;
+      renderBindPanel($('#ucBindPanel', body));
+      $('#ucBindPanel', body).hidden = false;
     });
 
     const toggle = $('#ucDeleteToggle', body);
@@ -984,7 +1247,406 @@
     });
   }
 
+  /* 昵称就地编辑（允许与他人重名） */
+  function renderNameEditor(scope) {
+    const nameEl = $('.uc-name', scope);
+    if (!nameEl) return;
+    const oldName = me.name;
+    nameEl.innerHTML =
+      '<input type="text" class="uc-name-input" id="ucNameInput" maxlength="16" value="' +
+      esc(oldName) + '">' +
+      '<button type="button" class="btn btn-sm btn-primary" id="ucNameSave">保存</button>' +
+      '<button type="button" class="btn btn-sm btn-ghost" id="ucNameCancel">取消</button>';
+    const input = $('#ucNameInput', nameEl);
+    input.focus();
+    input.select();
+    $('#ucNameCancel', nameEl).addEventListener('click', renderUserModal);
+    $('#ucNameSave', nameEl).addEventListener('click', async () => {
+      const name = input.value.trim();
+      if (!NAME_RE.test(name)) { toast('昵称需为 2～16 位中文、字母、数字或下划线'); return; }
+      if (name === oldName) { renderUserModal(); return; }
+      try {
+        const r = await svc.updateProfile(name);
+        me = r.user;
+        renderAuthArea();
+        renderUserModal();
+        toast('昵称已更新');
+      } catch (ex) {
+        toast(ex.message);
+      }
+    });
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); $('#ucNameSave', nameEl).click(); }
+    });
+  }
+
+  /* 游客绑定邮箱面板（路径A：绑定后账号 id 不变） */
+  function renderBindPanel(panel) {
+    panel.innerHTML =
+      '<form class="uc-form" id="ucBindForm" novalidate style="margin-top:14px">' +
+        '<label>邮箱' +
+          '<input type="email" id="ucBindEmail" autocomplete="email" placeholder="you@example.com"></label>' +
+        '<label>验证码' +
+          '<div style="display:flex;gap:8px">' +
+            '<input type="text" id="ucBindCode" inputmode="numeric" maxlength="6" autocomplete="one-time-code" placeholder="6 位验证码" style="flex:1">' +
+            '<button type="button" class="btn btn-sm" id="ucBindSend" style="white-space:nowrap">获取验证码</button>' +
+          '</div>' +
+        '</label>' +
+        '<label>设置登录密码' +
+          '<input type="password" id="ucBindPwd" autocomplete="new-password" placeholder="至少 6 位"></label>' +
+        '<label>确认密码' +
+          '<input type="password" id="ucBindPwd2" autocomplete="new-password" placeholder="请再次输入密码"></label>' +
+        '<p class="auth-error" id="ucBindError"></p>' +
+        '<button type="submit" class="btn btn-primary" id="ucBindSubmit">确认绑定</button>' +
+        '<button type="button" class="btn btn-ghost" id="ucBindCancel">取消</button>' +
+      '</form>';
+
+    const err = $('#ucBindError', panel);
+    const sendBtn = $('#ucBindSend', panel);
+    sendBtn.addEventListener('click', async () => {
+      const email = $('#ucBindEmail', panel).value.trim();
+      err.textContent = '';
+      if (!EMAIL_RE.test(email.toLowerCase())) { err.textContent = '请输入正确的邮箱地址'; return; }
+      sendBtn.disabled = true;
+      try {
+        const r = await svc.sendCode(email, 'bind');
+        let left = 60;
+        sendBtn.textContent = left + 's';
+        if (ucTimer) clearInterval(ucTimer);
+        ucTimer = setInterval(() => {
+          left--;
+          if (left <= 0) {
+            clearInterval(ucTimer); ucTimer = null;
+            sendBtn.disabled = false; sendBtn.textContent = '获取验证码';
+          } else { sendBtn.textContent = left + 's'; }
+        }, 1000);
+        if (r && r.code) toast('验证码：' + r.code + '（演示模式，已直接显示）');
+        else if (r && r.sent === false) toast('验证码已生成，请查看服务端控制台');
+        else toast('验证码已发送至 ' + email);
+      } catch (ex) {
+        err.textContent = ex.message;
+        sendBtn.disabled = false;
+      }
+    });
+
+    $('#ucBindCancel', panel).addEventListener('click', () => {
+      if (ucTimer) { clearInterval(ucTimer); ucTimer = null; }
+      panel.hidden = true;
+      renderUserModal();
+    });
+
+    $('#ucBindForm', panel).addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const email = $('#ucBindEmail', panel).value.trim();
+      const code = $('#ucBindCode', panel).value.trim();
+      const pwd = $('#ucBindPwd', panel).value;
+      const pwd2 = $('#ucBindPwd2', panel).value;
+      err.textContent = '';
+      if (!EMAIL_RE.test(email.toLowerCase())) { err.textContent = '请输入正确的邮箱地址'; return; }
+      if (!/^\d{6}$/.test(code)) { err.textContent = '请输入 6 位数字验证码'; return; }
+      if (pwd.length < 6) { err.textContent = '密码至少需要 6 位'; return; }
+      if (pwd !== pwd2) { err.textContent = '两次输入的密码不一致'; return; }
+      const beforeId = me.id;
+      const submitBtn = $('#ucBindSubmit', panel);
+      submitBtn.disabled = true;
+      try {
+        const r = await svc.bindEmail(email, code, pwd);
+        me = r.user;
+        if (ucTimer) { clearInterval(ucTimer); ucTimer = null; }
+        await applyRoleUI();
+        renderUserModal();
+        const sameId = String(me.id) === String(beforeId);
+        toast(sameId ? '绑定成功，账号保持不变，本地数据已无缝关联' : '绑定成功');
+      } catch (ex) {
+        err.textContent = ex.message;
+        submitBtn.disabled = false;
+      }
+    });
+  }
+
+  /* ---------- 备份导出/导入（可选 AES-256-GCM 加密） ---------- */
+  const BACKUP_KEYS = [
+    ['mood_diary', 'hx_mood_history'],
+    ['assessments', 'hx_history'],
+    ['cycle_records', 'hx_records'],
+    ['meditation', 'hx_meditation_history']
+  ];
+  const PBKDF2_ITERATIONS = 210000;
+  const cryptoOK = !!(window.crypto && crypto.subtle && window.isSecureContext !== false);
+
+  function buildBackupPayload() {
+    const entries = {};
+    BACKUP_KEYS.forEach(([k, lsKey]) => { entries[k] = LS.get(lsKey, []); });
+    return {
+      version: '1.0',
+      exported_at: new Date().toISOString(),
+      user_display_name: me.name || '',
+      user_id: me.uuid || ('id-' + me.id),
+      entries: entries
+    };
+  }
+
+  function downloadBlob(blob, filename) {
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+  }
+
+  function backupStamp() {
+    const d = new Date();
+    return d.getFullYear() +
+      String(d.getMonth() + 1).padStart(2, '0') +
+      String(d.getDate()).padStart(2, '0');
+  }
+
+  function b64encode(buf) {
+    const bytes = new Uint8Array(buf);
+    let s = '';
+    for (let i = 0; i < bytes.length; i += 0x8000) {
+      s += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+    }
+    return btoa(s);
+  }
+
+  function b64decode(b64) {
+    const s = atob(b64);
+    const bytes = new Uint8Array(s.length);
+    for (let i = 0; i < s.length; i++) bytes[i] = s.charCodeAt(i);
+    return bytes;
+  }
+
+  async function deriveBackupKey(password, salt, iterations) {
+    const material = await crypto.subtle.importKey(
+      'raw', new TextEncoder().encode(password), 'PBKDF2', false, ['deriveKey']);
+    return crypto.subtle.deriveKey(
+      { name: 'PBKDF2', salt: salt, iterations: iterations, hash: 'SHA-256' },
+      material, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
+  }
+
+  /* 加密产物为 JSON 信封（含盐/IV/密文），整体存为 .enc 文件 */
+  async function encryptBackupText(plainText, password) {
+    const salt = crypto.getRandomValues(new Uint8Array(16));
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+    const key = await deriveBackupKey(password, salt, PBKDF2_ITERATIONS);
+    const cipher = await crypto.subtle.encrypt(
+      { name: 'AES-GCM', iv: iv }, key, new TextEncoder().encode(plainText));
+    return JSON.stringify({
+      format: 'huixin-backup',
+      encrypted: true,
+      cipher: 'AES-256-GCM',
+      kdf: 'PBKDF2-SHA256',
+      iterations: PBKDF2_ITERATIONS,
+      salt: b64encode(salt),
+      iv: b64encode(iv),
+      data: b64encode(cipher)
+    });
+  }
+
+  async function decryptBackupText(text, password) {
+    const env = JSON.parse(text);
+    const key = await deriveBackupKey(
+      password, b64decode(env.salt), env.iterations || PBKDF2_ITERATIONS);
+    const plain = await crypto.subtle.decrypt(
+      { name: 'AES-GCM', iv: b64decode(env.iv) }, key, b64decode(env.data));
+    return new TextDecoder().decode(plain);
+  }
+
+  function isEncryptedBackup(text) {
+    try {
+      const obj = JSON.parse(text);
+      return !!(obj && obj.format === 'huixin-backup' && obj.encrypted === true);
+    } catch (e) { return false; }
+  }
+
+  /* 导出面板：是否设置密码 */
+  function openExportPanel(body) {
+    const panel = $('#ucExportPanel', body);
+    $('#ucImportPanel', body).hidden = true;
+    panel.innerHTML =
+      '<form class="uc-form" id="ucExportForm" novalidate>' +
+        '<p style="margin:0"><b>是否为导出文件设置密码？</b></p>' +
+        '<label class="uc-radio">' +
+          '<input type="radio" name="ucEnc" value="yes"' + (cryptoOK ? ' checked' : ' disabled') + '> ' +
+          '是，使用 AES-256 加密（推荐）' +
+        '</label>' +
+        (cryptoOK ? '' : '<p class="muted">当前环境不支持加密，仅可导出普通 JSON。</p>') +
+        '<div id="ucEncPwdRow">' +
+          '<input type="password" id="ucEncPwd" placeholder="设置密码（至少 4 位）" autocomplete="new-password">' +
+          '<input type="password" id="ucEncPwd2" placeholder="确认密码" autocomplete="new-password">' +
+        '</div>' +
+        '<label class="uc-radio">' +
+          '<input type="radio" name="ucEnc" value="no"' + (cryptoOK ? '' : ' checked') + '> ' +
+          '否，导出普通 JSON 文件' +
+        '</label>' +
+        '<p class="form-error" id="ucPlainWarn" hidden>未加密文件包含敏感信息，请妥善保管</p>' +
+        '<p class="form-error" id="ucExportErr" hidden></p>' +
+        '<div class="uc-form-btns">' +
+          '<button type="submit" class="btn btn-primary btn-sm">导出</button>' +
+          '<button type="button" class="btn btn-ghost btn-sm" id="ucExportCancel">取消</button>' +
+        '</div>' +
+      '</form>';
+    panel.hidden = false;
+
+    const pwdRow = $('#ucEncPwdRow', panel);
+    const warn = $('#ucPlainWarn', panel);
+    const err = $('#ucExportErr', panel);
+    panel.querySelectorAll('input[name="ucEnc"]').forEach((r) => {
+      r.addEventListener('change', () => {
+        const enc = panel.querySelector('input[name="ucEnc"]:checked').value === 'yes';
+        pwdRow.hidden = !enc;
+        warn.hidden = enc;
+        err.hidden = true;
+      });
+    });
+    $('#ucExportCancel', panel).addEventListener('click', () => { panel.hidden = true; });
+
+    $('#ucExportForm', panel).addEventListener('submit', async (ev) => {
+      ev.preventDefault();
+      err.hidden = true;
+      const enc = panel.querySelector('input[name="ucEnc"]:checked').value === 'yes';
+      const plain = JSON.stringify(buildBackupPayload(), null, 2);
+      if (!enc) {
+        downloadBlob(new Blob([plain], { type: 'application/json' }),
+          'huixin-backup-' + backupStamp() + '.json');
+        panel.hidden = true;
+        toast('已导出 JSON 备份文件，未加密文件包含敏感信息，请妥善保管');
+        return;
+      }
+      const pwd = $('#ucEncPwd', panel).value;
+      const pwd2 = $('#ucEncPwd2', panel).value;
+      if (pwd.length < 4) { err.textContent = '密码至少 4 位'; err.hidden = false; return; }
+      if (pwd !== pwd2) { err.textContent = '两次输入的密码不一致'; err.hidden = false; return; }
+      const btn = panel.querySelector('button[type="submit"]');
+      btn.disabled = true;
+      try {
+        const encText = await encryptBackupText(plain, pwd);
+        downloadBlob(new Blob([encText], { type: 'application/octet-stream' }),
+          'huixin-backup-' + backupStamp() + '.enc');
+        panel.hidden = true;
+        toast('已导出 AES-256 加密备份文件（.enc）');
+      } catch (ex) {
+        err.textContent = '加密失败：' + ex.message;
+        err.hidden = false;
+        btn.disabled = false;
+      }
+    });
+  }
+
+  /* 导入：合并本地数据，重复记录自动跳过，返回新增条数 */
+  function mergeBackup(payload) {
+    const entries = payload && payload.entries;
+    if (!entries || typeof entries !== 'object') throw new Error('备份文件格式不正确');
+    let added = 0;
+    BACKUP_KEYS.forEach(([k, lsKey]) => {
+      const incoming = Array.isArray(entries[k]) ? entries[k] : [];
+      if (!incoming.length) return;
+      const cur = LS.get(lsKey, []);
+      const seen = new Set(cur.map((x) => JSON.stringify(x)));
+      incoming.forEach((x) => {
+        const s = JSON.stringify(x);
+        if (!seen.has(s)) { cur.push(x); seen.add(s); added++; }
+      });
+      LS.set(lsKey, cur);
+    });
+    return added;
+  }
+
+  async function handleImportFile(file, body) {
+    let text;
+    try { text = await file.text(); } catch (e) { toast('读取文件失败'); return; }
+    if (isEncryptedBackup(text)) {
+      renderImportPwdPanel(body, text);
+      return;
+    }
+    applyImportText(body, text);
+  }
+
+  function applyImportText(body, plainText) {
+    let payload;
+    try { payload = JSON.parse(plainText); } catch (e) { toast('备份文件格式不正确'); return; }
+    try {
+      const added = mergeBackup(payload);
+      const panel = $('#ucImportPanel', body);
+      if (panel) panel.hidden = true;
+      toast('导入完成，新增 ' + added + ' 条记录（重复记录已自动跳过）');
+    } catch (e) {
+      toast(e.message);
+    }
+  }
+
+  /* 检测到加密文件时：输入密码解密 */
+  function renderImportPwdPanel(body, encText) {
+    const panel = $('#ucImportPanel', body);
+    $('#ucExportPanel', body).hidden = true;
+    panel.innerHTML =
+      '<form class="uc-form" id="ucImportForm" novalidate>' +
+        '<p style="margin:0"><b>检测到加密备份文件</b>，请输入导出时设置的密码：</p>' +
+        '<input type="password" id="ucImportPwd" placeholder="备份密码" autocomplete="off">' +
+        '<p class="form-error" id="ucImportErr" hidden></p>' +
+        '<div class="uc-form-btns">' +
+          '<button type="submit" class="btn btn-primary btn-sm">解密并导入</button>' +
+          '<button type="button" class="btn btn-ghost btn-sm" id="ucImportCancel">取消</button>' +
+        '</div>' +
+      '</form>';
+    panel.hidden = false;
+    const err = $('#ucImportErr', panel);
+    $('#ucImportCancel', panel).addEventListener('click', () => { panel.hidden = true; });
+    $('#ucImportForm', panel).addEventListener('submit', async (ev) => {
+      ev.preventDefault();
+      err.hidden = true;
+      const btn = panel.querySelector('button[type="submit"]');
+      btn.disabled = true;
+      try {
+        const plain = await decryptBackupText(encText, $('#ucImportPwd', panel).value);
+        applyImportText(body, plain);
+      } catch (e) {
+        err.textContent = '密码错误或文件已损坏';
+        err.hidden = false;
+        btn.disabled = false;
+      }
+    });
+  }
+
   function renderDeletePanel(panel) {
+    if (isGuestUser(me)) {
+      panel.innerHTML =
+        '<form class="uc-form" id="ucDeleteForm" novalidate>' +
+          '<p class="small muted">游客无邮箱/密码，持有当前登录即可注销。账号注销后不可恢复；' +
+          '本设备上的日记数据不会自动删除，建议先导出备份。</p>' +
+          '<label style="display:flex;gap:8px;align-items:flex-start;font-weight:400">' +
+            '<input type="checkbox" id="ucDelAgree" style="margin-top:3px">' +
+            '<span>我已知晓该操作不可恢复，确认注销此游客账号</span></label>' +
+          '<p class="auth-error" id="ucDelError"></p>' +
+          '<button type="submit" class="btn btn-danger" id="ucDelSubmit">确认注销游客账号</button>' +
+          '<button type="button" class="btn btn-ghost" id="ucDelCancel">取消</button>' +
+        '</form>';
+      $('#ucDelCancel', panel).addEventListener('click', renderUserModal);
+      $('#ucDeleteForm', panel).addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const err = $('#ucDelError', panel);
+        err.textContent = '';
+        if (!$('#ucDelAgree', panel).checked) { err.textContent = '请先勾选确认声明'; return; }
+        if (!window.confirm('游客账号注销后将无法恢复。\n确认注销「' + me.name + '」吗？')) return;
+        const submitBtn = $('#ucDelSubmit', panel);
+        submitBtn.disabled = true;
+        try {
+          await svc.deleteAccount({});
+          closeUserCenter();
+          me = null;
+          await applyRoleUI();
+          await refreshHistoryView();
+          toast('游客账号已注销');
+        } catch (ex) {
+          err.textContent = ex.message;
+          submitBtn.disabled = false;
+        }
+      });
+      return;
+    }
     ucVerifyBy = 'password';
     panel.innerHTML =
       '<form class="uc-form" id="ucDeleteForm" novalidate>' +

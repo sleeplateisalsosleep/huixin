@@ -1,6 +1,7 @@
 """蕙心网后端 · SQLite 数据库层"""
 import json
 import os
+import secrets
 import sqlite3
 from datetime import datetime
 
@@ -13,10 +14,13 @@ SEED_PATH = os.path.join(ROOT, 'backend', 'kb_seed.json')
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS users (
   id         INTEGER PRIMARY KEY AUTOINCREMENT,
-  name       TEXT NOT NULL UNIQUE,
+  uuid       TEXT UNIQUE,
+  name       TEXT NOT NULL,
   email      TEXT UNIQUE,
   pwd_hash   TEXT,
   role       TEXT NOT NULL DEFAULT 'user',
+  is_guest   INTEGER NOT NULL DEFAULT 0,
+  device_id  TEXT,
   created_at TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS sessions (
@@ -100,6 +104,9 @@ CREATE INDEX IF NOT EXISTS idx_mood_summary_user ON mood_summaries(user_id);
 CREATE INDEX IF NOT EXISTS idx_mood_summary_date ON mood_summaries(client_date);
 CREATE INDEX IF NOT EXISTS idx_meditation_summary_user ON meditation_summaries(user_id);
 """
+# 注意：idx_users_device 依赖 users 迁移后的 device_id 列，
+# 必须在 init_db() 完成 users 表迁移之后再创建，不能放进上面的 SCHEMA
+# （旧库执行 SCHEMA 时 users 还是旧结构，会报 no such column）。
 
 
 def now_iso():
@@ -210,38 +217,53 @@ def init_db(admin_hash, admin_email='admin@huixin.local'):
     conn = connect_db()
     conn.executescript(SCHEMA)
 
-    # 迁移：旧版 users 表没有 email 列、pwd_hash 为 NOT NULL
+    # 迁移：users 表升级到「uuid + 游客」结构
+    # - uuid：公开稳定身份标识（本地数据关联 / 未来多端）
+    # - is_guest：游客标记；device_id：同设备游客幂等找回
+    # - name 解除 UNIQUE：昵称仅用于展示，允许重名
     cols = [r[1] for r in conn.execute('PRAGMA table_info(users)').fetchall()]
     if 'email' not in cols:
         conn.execute('ALTER TABLE users ADD COLUMN email TEXT')
-    # 旧表 pwd_hash NOT NULL → 重建为可空（兼容无密码的邮箱用户）
-    if 'pwd_hash' in cols:
-        # 检查是否仍为 NOT NULL
-        pwd_col = [r for r in conn.execute('PRAGMA table_info(users)').fetchall()
-                   if r[1] == 'pwd_hash'][0]
-        if pwd_col[3] == 1:  # notnull=1
-            # SQLite 不支持修改列约束，重建表
-            conn.executescript("""
-                CREATE TABLE users_new (
-                  id INTEGER PRIMARY KEY AUTOINCREMENT,
-                  name TEXT NOT NULL UNIQUE,
-                  email TEXT UNIQUE,
-                  pwd_hash TEXT,
-                  role TEXT NOT NULL DEFAULT 'user',
-                  created_at TEXT NOT NULL
-                );
-                INSERT INTO users_new (id, name, email, pwd_hash, role, created_at)
-                  SELECT id, name, NULL, pwd_hash, role, created_at FROM users;
-                DROP TABLE users;
-                ALTER TABLE users_new RENAME TO users;
-            """)
+        cols.append('email')
+    if any(c not in cols for c in ('uuid', 'is_guest', 'device_id')):
+        # SQLite 不支持改列约束，统一重建表（顺带消化历史 pwd_hash NOT NULL 等旧结构）
+        # 旧库中 sessions/assessments 等表通过外键引用 users，DROP 前必须临时关 FK，
+        # 否则有业务数据时会报 FOREIGN KEY constraint failed。
+        # PRAGMA foreign_keys 不能在事务内修改，executescript 会先隐式提交。
+        conn.execute('PRAGMA foreign_keys = OFF')
+        conn.executescript("""
+            CREATE TABLE users_new (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              uuid TEXT UNIQUE,
+              name TEXT NOT NULL,
+              email TEXT UNIQUE,
+              pwd_hash TEXT,
+              role TEXT NOT NULL DEFAULT 'user',
+              is_guest INTEGER NOT NULL DEFAULT 0,
+              device_id TEXT,
+              created_at TEXT NOT NULL
+            );
+            INSERT INTO users_new (id, name, email, pwd_hash, role, created_at)
+              SELECT id, name, email, pwd_hash, role, created_at FROM users;
+            DROP TABLE users;
+            ALTER TABLE users_new RENAME TO users;
+        """)
+        conn.commit()
+        conn.execute('PRAGMA foreign_keys = ON')
+    # 给所有历史用户回填 uuid
+    for r in conn.execute('SELECT id FROM users WHERE uuid IS NULL').fetchall():
+        conn.execute('UPDATE users SET uuid = ? WHERE id = ?',
+                     (secrets.token_hex(16), r['id']))
+    # 迁移完成后 device_id 列必然存在，此时再建索引
+    conn.execute('CREATE INDEX IF NOT EXISTS idx_users_device ON users(device_id)')
 
     admin_created = False
     row = conn.execute("SELECT id, email FROM users WHERE name = 'admin'").fetchone()
     if row is None:
         conn.execute(
-            "INSERT INTO users (name, email, pwd_hash, role, created_at) VALUES (?,?,?,?,?)",
-            ('admin', admin_email, admin_hash, 'admin', now_iso())
+            "INSERT INTO users (uuid, name, email, pwd_hash, role, is_guest, created_at) "
+            "VALUES (?,?,?,?,?,?,?)",
+            (secrets.token_hex(16), 'admin', admin_email, admin_hash, 'admin', 0, now_iso())
         )
         admin_created = True
     elif admin_email and admin_email != 'admin@huixin.local' and row['email'] != admin_email:
@@ -290,8 +312,13 @@ def card_public(row, *, with_body=False):
 
 
 def user_public(row):
+    keys = row.keys()
     return {
-        'id': row['id'], 'name': row['name'],
-        'email': row['email'] if 'email' in row.keys() else None,
-        'role': row['role'], 'created_at': row['created_at']
+        'id': row['id'],
+        'uuid': row['uuid'] if 'uuid' in keys else None,
+        'name': row['name'],
+        'email': row['email'] if 'email' in keys else None,
+        'role': row['role'],
+        'is_guest': bool(row['is_guest']) if 'is_guest' in keys else False,
+        'created_at': row['created_at']
     }
