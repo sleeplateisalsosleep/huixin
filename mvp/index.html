@@ -76,6 +76,11 @@
             <button type="button" class="chip" data-v="疲惫">😪 疲惫</button>
             <button type="button" class="chip" data-v="平静">😌 平静</button>
             <button type="button" class="chip" data-v="开心">😊 开心</button>
+            <button type="button" class="chip chip-add" data-kind="mood">＋ 自定义</button>
+          </div>
+          <div class="custom-row" id="moodCustomRow" hidden>
+            <input type="text" id="moodCustomInput" maxlength="6" placeholder="输入情绪，如：委屈、感动">
+            <button type="button" class="btn-secondary btn-mini" id="moodCustomAdd">添加</button>
           </div>
         </div>
 
@@ -115,26 +120,17 @@
 
   <!-- ============ 趋势 ============ -->
   <section class="view" id="view-trend" data-view="trend" hidden>
-    <h2 class="view-title">日历 <span class="muted small" id="calCount"></span></h2>
-    <div class="card" id="calCard">
-      <div class="cal-head">
-        <button type="button" class="cal-nav" id="calPrev" aria-label="上个月">‹</button>
-        <span class="cal-title" id="calTitle"></span>
-        <button type="button" class="cal-nav" id="calNext" aria-label="下个月">›</button>
-      </div>
-      <div class="cal-weekdays">
-        <span>一</span><span>二</span><span>三</span><span>四</span>
-        <span>五</span><span>六</span><span>日</span>
-      </div>
-      <div class="cal-grid" id="calGrid"></div>
+    <h2 class="view-title">最近七次</h2>
+    <div class="card" id="weekCard">
+      <div class="week-grid" id="weekGrid"></div>
       <div class="legend">
         <span><i class="dot c-teal"></i>平静/开心</span>
         <span><i class="dot c-amber"></i>焦虑/烦躁</span>
         <span><i class="dot c-rose"></i>低落/疲惫</span>
+        <span><i class="dot c-mix"></i>自定义</span>
         <span><i class="dot c-none"></i>已打卡·未选情绪</span>
       </div>
-      <p class="stage-legend muted">格子底边色带：<i class="band band-period"></i>经期 <i class="band band-ovu"></i>排卵 <i class="band band-luteal"></i>黄体/经前 <i class="band band-follic"></i>卵泡</p>
-      <p class="muted small">今天之后的色带为周期预测，仅供参考。</p>
+      <p class="stage-legend muted">色块下方色带：<i class="band band-period"></i>经期 <i class="band band-ovu"></i>排卵 <i class="band band-luteal"></i>黄体/经前 <i class="band band-follic"></i>卵泡</p>
     </div>
 
     <h2 class="view-title">历史记录 <span class="muted small" id="trendCount"></span></h2>
@@ -179,10 +175,12 @@
       <h3>数据管理</h3>
       <p class="muted small">数据只存在本浏览器，清理缓存会丢失，建议定期导出备份。</p>
       <div class="btn-row">
-        <button class="btn-secondary" id="exportBtn">导出 JSON</button>
-        <button class="btn-secondary" id="importBtn">导入 JSON</button>
+        <button class="btn-secondary" id="exportBtn">导出备份（加密）</button>
+        <button class="btn-secondary" id="importBtn">导入备份</button>
       </div>
-      <input type="file" id="importFile" accept="application/json,.json" hidden>
+      <input type="file" id="importFile" accept=".enc,.json,application/json,application/octet-stream" hidden>
+      <div id="exportPanel" hidden></div>
+      <div id="importPanel" hidden></div>
       <button class="btn-danger" id="clearBtn">清除全部本地数据</button>
     </div>
 

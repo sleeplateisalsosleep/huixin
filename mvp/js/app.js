@@ -127,53 +127,53 @@
     (values || []).forEach(function (v) { arr.push(v); });
   }
 
-  /* 预设情绪白名单：仅这些值参与选择回显与趋势着色，
-     旧版本遗留的自定义情绪字符串不报错，但不再展示、不再着色 */
-  var KNOWN_MOODS = { '焦虑': 1, '低落': 1, '烦躁': 1, '疲惫': 1, '平静': 1, '开心': 1 };
-
-  /* 用户自定义身体感受（localStorage 持久化）；旧数据可能含 mood 键，保留但不再使用 */
+  /* 用户自定义标签（localStorage 持久化，key 与预设分开） */
   var K_CUSTOM = 'hx_mvp_custom';
-  var customTags = readJSON(K_CUSTOM, { body: [] });
+  var customTags = readJSON(K_CUSTOM, { mood: [], body: [] });
   function saveCustomTags() { writeJSON(K_CUSTOM, customTags); }
 
-  function renderCustomChips() {
-    var box = $('#bodyChips');
+  function renderCustomChips(kind) {
+    var box = $('#' + (kind === 'mood' ? 'moodChips' : 'bodyChips'));
     if (!box) return;
     // 清掉旧自定义 chip（保留预设与「自定义」按钮）
     $all('.chip[data-custom]', box).forEach(function (c) { c.parentNode.removeChild(c); });
-    var addBtn = $('.chip-add', box);
-    (customTags.body || []).forEach(function (v) {
+    var addBtn = $('.chip-add[data-kind="' + kind + '"]', box);
+    var sel = kind === 'mood' ? selMood : selBody;
+    (customTags[kind] || []).forEach(function (v) {
       var b = document.createElement('button');
       b.type = 'button';
       b.className = 'chip';
       b.setAttribute('data-v', v);
       b.setAttribute('data-custom', '1');
       b.textContent = v;
-      if (selBody.indexOf(v) >= 0) b.classList.add('is-on');
+      if (sel.indexOf(v) >= 0) b.classList.add('is-on');
       box.insertBefore(b, addBtn);
     });
   }
 
-  function addCustomTag() {
-    var input = $('#bodyCustomInput');
+  function addCustomTag(kind) {
+    var input = $(kind === 'mood' ? '#moodCustomInput' : '#bodyCustomInput');
     var v = (input.value || '').trim().replace(/[<>&"']/g, '');
     if (!v) { toast('请输入内容'); return; }
     if (v.length > 6) { toast('不超过 6 个字'); return; }
-    // 与预设及已有自定义查重
-    var exists = $all('.chip', $('#bodyChips')).some(function (c) {
+    var sel = kind === 'mood' ? selMood : selBody;
+    // 与预设查重
+    var exists = $all('.chip', $(kind === 'mood' ? '#moodChips' : '#bodyChips')).some(function (c) {
       return c.getAttribute('data-v') === v;
     });
     if (exists) { toast('「' + v + '」已存在'); return; }
-    customTags.body = customTags.body || [];
-    customTags.body.push(v);
+    customTags[kind] = customTags[kind] || [];
+    customTags[kind].push(v);
     saveCustomTags();
-    // 新标签自动选中，并与「无不适」互斥
-    var i = selBody.indexOf('无不适');
-    if (i >= 0) selBody.splice(i, 1);
-    selBody.push(v);
+    // 新标签自动选中
+    if (kind === 'body') {
+      var i = selBody.indexOf('无不适');
+      if (i >= 0) selBody.splice(i, 1);
+    }
+    sel.push(v);
     input.value = '';
-    $('#bodyCustomRow').hidden = true;
-    renderCustomChips();
+    $(kind === 'mood' ? '#moodCustomRow' : '#bodyCustomRow').hidden = true;
+    renderCustomChips(kind);
   }
 
   function bindChips(containerId, store, afterToggle) {
@@ -181,11 +181,12 @@
     box.addEventListener('click', function (e) {
       var btn = e.target.closest('.chip');
       if (!btn) return;
-      // 「自定义」按钮打开身体感受输入框（仅身体区存在）
+      // 「自定义」按钮打开输入框
       if (btn.classList.contains('chip-add')) {
-        var row = $('#bodyCustomRow');
+        var kind = btn.getAttribute('data-kind');
+        var row = $(kind === 'mood' ? '#moodCustomRow' : '#bodyCustomRow');
         row.hidden = !row.hidden;
-        if (!row.hidden) $('#bodyCustomInput').focus();
+        if (!row.hidden) $(kind === 'mood' ? '#moodCustomInput' : '#bodyCustomInput').focus();
         return;
       }
       var v = btn.getAttribute('data-v');
@@ -227,7 +228,8 @@
     var e = findEntry(todayIso());
     resetSel(selMood, e ? e.moodTags : []);
     resetSel(selBody, e ? e.bodyTags : []);
-    renderCustomChips();
+    renderCustomChips('mood');
+    renderCustomChips('body');
     syncChipUI($('#moodChips'), selMood);
     syncChipUI($('#bodyChips'), selBody);
     $('#noteInput').value = e ? (e.note || '') : '';
@@ -246,7 +248,7 @@
     var info = Cycle.cycleInfo(settings.lastPeriod, settings.cycleLen || 28, new Date());
     var rec = {
       date: date,
-      moodTags: selMood.filter(function (m) { return KNOWN_MOODS[m]; }),
+      moodTags: selMood.slice(),
       bodyTags: selBody.slice(),
       note: $('#noteInput').value.trim().slice(0, 200),
       phase: info && !info.future ? info.stage : '',
@@ -337,18 +339,20 @@
   function closeFeedback() { $('#feedbackMask').hidden = true; }
 
   /* ---------------- 趋势 ---------------- */
-  /* 情绪→颜色：低落/疲惫 rose、焦虑/烦躁 amber、平静/开心 teal；
-     未知（旧版自定义）情绪不参与着色，按"未选情绪"中性显示 */
+  /* 情绪→颜色：消极红、焦虑橙、积极绿、自定义粉绿混合 */
+  var KNOWN_MOODS = { '焦虑': 1, '低落': 1, '烦躁': 1, '疲惫': 1, '平静': 1, '开心': 1 };
   function moodColorOf(tags) {
     if (!tags || tags.length === 0) return '';
-    var hasNeg = false, hasAnx = false, hasPos = false;
+    var hasNeg = false, hasAnx = false, hasPos = false, hasCustom = false;
     tags.forEach(function (t) {
       if (t === '低落' || t === '疲惫') hasNeg = true;
       else if (t === '焦虑' || t === '烦躁') hasAnx = true;
       else if (t === '平静' || t === '开心') hasPos = true;
+      else if (!KNOWN_MOODS[t]) hasCustom = true;
     });
     if (hasNeg) return 'c-rose';
     if (hasAnx) return 'c-amber';
+    if (hasCustom) return 'c-mix';   /* 自定义 → 粉绿混合 */
     if (hasPos) return 'c-teal';
     return '';
   }
@@ -365,106 +369,47 @@
   var listShown = LIST_PAGE;
 
   function renderTrend() {
-    renderCalendar();
+    renderSevenGrid();
     renderRecordList();
   }
 
-  /* ---------------- 日历视图 ----------------
-     可翻月；打卡日=情绪主色底 + 情绪点 + 身体/日记角标；
-     每天底边周期色带（有记录优先用打卡快照 phase，
-     今天之后为预测带，降透明度显示） */
-  var calYear = null, calMonth = null; // calMonth: 0-11
-
-  function renderCalendar() {
-    var now = new Date();
-    if (calYear === null) { calYear = now.getFullYear(); calMonth = now.getMonth(); }
-    var y = calYear, m = calMonth;
+  /* 最近七次：只放真实打卡，从旧到新；未打卡日子不占位 */
+  function renderSevenGrid() {
+    var grid = $('#weekGrid');
+    grid.innerHTML = '';
+    var dows = ['日', '一', '二', '三', '四', '五', '六'];
+    var last7 = entries.slice().sort(function (a, b) {
+      return a.date < b.date ? -1 : (a.date > b.date ? 1 : 0);
+    }).slice(-7);
     var today = todayIso();
 
-    $('#calTitle').textContent = y + '年' + (m + 1) + '月';
-
-    var first = new Date(y, m, 1);
-    var startDow = (first.getDay() + 6) % 7; // 周一=0
-    var daysInMonth = new Date(y, m + 1, 0).getDate();
-
-    var byDate = {};
-    entries.forEach(function (r) { byDate[r.date] = r; });
-    var monthCount = 0;
-
-    var grid = $('#calGrid');
-    grid.innerHTML = '';
-
-    function appendEmpty() {
-      var el = document.createElement('div');
-      el.className = 'cal-cell is-empty';
-      el.setAttribute('aria-hidden', 'true');
-      grid.appendChild(el);
+    if (last7.length === 0) {
+      grid.innerHTML =
+        '<div class="empty" style="grid-column:1/-1;padding:18px 10px">' +
+        '还没有记录，完成第一次打卡后，<br>这里会显示最近七次情绪。</div>';
+      return;
     }
 
-    for (var i = 0; i < startDow; i++) appendEmpty();
-
-    for (var d = 1; d <= daysInMonth; d++) {
-      var mm = String(m + 1), dd = String(d);
-      if (mm.length < 2) mm = '0' + mm;
-      if (dd.length < 2) dd = '0' + dd;
-      var dateStr = y + '-' + mm + '-' + dd;
-
-      var rec = byDate[dateStr];
-      var cls = 'cal-cell';
-      var color = '';
-      var dots = '';
-      var corner = '';
-      var ariaExtra = '未打卡';
-
-      if (rec) {
-        monthCount++;
-        var moodTags = rec.moodTags || [];
-        var bodyTags = rec.bodyTags || [];
-        color = moodColorOf(moodTags);
-        cls += color ? ' ' + color : ' c-none';
-        var n = Math.min(moodTags.length, 3);
-        for (var k = 0; k < n; k++) dots += '<i class="cal-dot"></i>';
-        var realBody = bodyTags.filter(function (t) { return t !== '无不适'; });
-        if (realBody.length > 0 || rec.note) corner = '<i class="cal-corner" title="有身体感受或日记"></i>';
-        ariaExtra = color ? '已打卡' : '已打卡·未选情绪';
+    last7.forEach(function (rec) {
+      var d = new Date(rec.date + 'T00:00:00');
+      var color = moodColorOf(rec.moodTags);
+      var dotCls = color || 'c-none'; // 打了卡但未选情绪 → 中性描边，区别于无格
+      var stage = rec.phase;
+      if (!stage && isOnboarded()) {
+        stage = Cycle.cycleInfo(settings.lastPeriod, settings.cycleLen, d).stage;
       }
-
-      // 周期阶段：有记录优先快照；未设置周期则中性带
-      var stage = '';
-      if (isOnboarded()) {
-        stage = (rec && rec.phase) ? rec.phase : Cycle.stageAtDate(settings.lastPeriod, settings.cycleLen, dateStr);
-      }
-      var band = bandClass(stage || '');
-      var isFuture = dateStr > today;
-      if (isFuture && !rec) ariaExtra = '预测·' + (band ? stage : '普通日');
-
       var cell = document.createElement('button');
       cell.type = 'button';
-      cell.className = cls;
-      cell.setAttribute('data-date', dateStr);
-      cell.setAttribute('aria-label', (m + 1) + '月' + d + '日，' + (stage || '周期未设置') + '，' + ariaExtra);
+      cell.className = 'week-cell';
+      cell.setAttribute('data-date', rec.date);
       cell.innerHTML =
-        '<span class="cal-day">' + d + '</span>' +
-        (dots ? '<span class="cal-dots">' + dots + '</span>' : '') +
-        corner +
-        '<span class="cal-band ' + band + (isFuture && band ? ' is-predicted' : '') + '"></span>';
-      if (dateStr === today) cell.classList.add('is-today');
+        '<span class="week-dow">' + (rec.date === today ? '今天' : dows[d.getDay()]) + '</span>' +
+        '<div class="week-dot ' + dotCls + '">' + (color ? '♥' : '♡') + '</div>' +
+        '<span class="week-num">' + (d.getMonth() + 1) + '/' + d.getDate() + '</span>' +
+        '<span class="week-band ' + bandClass(stage || '') + '"></span>';
+      cell.addEventListener('click', function () { openRecordSheet(rec.date); });
       grid.appendChild(cell);
-    }
-
-    // 尾部补空格至 7 的倍数（计数器必须随补格递增，否则条件恒真会死循环；
-    // 42 格=6 行是月历的理论上限，硬封顶杜绝任何情况下的无限追加）
-    var cellTotal = startDow + daysInMonth;
-    while (cellTotal % 7 !== 0 && cellTotal < 42) { appendEmpty(); cellTotal++; }
-
-    $('#calCount').textContent = monthCount ? '本月打卡 ' + monthCount + ' 次' : '';
-  }
-
-  function changeMonth(dir) {
-    calMonth += dir;
-    if (calMonth < 0) { calMonth = 11; calYear--; }
-    if (calMonth > 11) { calMonth = 0; calYear++; }
-    renderCalendar();
+    });
   }
 
   function recordItemHTML(r) {
@@ -658,41 +603,254 @@
     renderToday();
   }
 
-  function exportData() {
-    var payload = {
-      app: 'hx-mvp', version: 1,
-      exportedAt: new Date().toISOString(),
-      settings: settings, entries: entries
-    };
-    var blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+  /* ---------------- 备份导出/导入（AES-256-GCM，与主站同方案） ---------------- */
+  var PBKDF2_ITERATIONS = 210000;
+  var cryptoOK = !!(window.crypto && crypto.subtle && window.isSecureContext !== false);
+  var weakPwdAck = null;    /* 已确认放行的弱密码（再次点击导出即确认） */
+  var importMode = 'merge'; /* 导入方式：merge 合并（按日期去重、本地优先）| overwrite 覆盖 */
+
+  function backupStamp() {
+    return todayIso().replace(/-/g, '');
+  }
+
+  function downloadBackup(blob, filename) {
     var a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
-    a.download = 'hx-mvp-backup-' + todayIso() + '.json';
+    a.download = filename;
     document.body.appendChild(a);
     a.click();
     setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 500);
-    toast('已导出备份文件');
   }
 
-  function importData(file) {
-    var reader = new FileReader();
-    reader.onload = function () {
-      try {
-        var data = JSON.parse(reader.result);
-        if (data.app !== 'hx-mvp' || !Array.isArray(data.entries)) {
-          toast('文件格式不正确'); return;
-        }
-        if (!confirm('导入将覆盖当前全部本地数据，确定继续吗？')) return;
-        settings = data.settings || settings;
-        entries = data.entries;
-        saveSettings(); saveEntries();
-        toast('导入成功，共 ' + entries.length + ' 条记录');
-        renderToday();
-      } catch (e) {
-        toast('文件解析失败');
+  function b64encode(buf) {
+    var bytes = new Uint8Array(buf), s = '', i;
+    for (i = 0; i < bytes.length; i += 0x8000) {
+      s += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+    }
+    return btoa(s);
+  }
+  function b64decode(b64) {
+    var s = atob(b64), bytes = new Uint8Array(s.length), i;
+    for (i = 0; i < s.length; i++) bytes[i] = s.charCodeAt(i);
+    return bytes;
+  }
+
+  async function deriveBackupKey(password, salt, iterations) {
+    var material = await crypto.subtle.importKey(
+      'raw', new TextEncoder().encode(password), 'PBKDF2', false, ['deriveKey']);
+    return crypto.subtle.deriveKey(
+      { name: 'PBKDF2', salt: salt, iterations: iterations, hash: 'SHA-256' },
+      material, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
+  }
+
+  /* 加密产物为 JSON 信封（含盐/IV/密文），整体存为 .enc 文件。
+     format 带 -mvp 后缀，与主站备份文件互不误认（两站数据结构不同，不做互导）。 */
+  async function encryptBackupText(plainText, password) {
+    var salt = crypto.getRandomValues(new Uint8Array(16));
+    var iv = crypto.getRandomValues(new Uint8Array(12));
+    var key = await deriveBackupKey(password, salt, PBKDF2_ITERATIONS);
+    var cipher = await crypto.subtle.encrypt(
+      { name: 'AES-GCM', iv: iv }, key, new TextEncoder().encode(plainText));
+    return JSON.stringify({
+      format: 'huixin-backup-mvp',
+      encrypted: true,
+      cipher: 'AES-256-GCM',
+      kdf: 'PBKDF2-SHA256',
+      iterations: PBKDF2_ITERATIONS,
+      salt: b64encode(salt),
+      iv: b64encode(iv),
+      data: b64encode(cipher)
+    });
+  }
+
+  async function decryptBackupText(text, password) {
+    var env = JSON.parse(text);
+    var key = await deriveBackupKey(
+      password, b64decode(env.salt), env.iterations || PBKDF2_ITERATIONS);
+    var plain = await crypto.subtle.decrypt(
+      { name: 'AES-GCM', iv: b64decode(env.iv) }, key, b64decode(env.data));
+    return new TextDecoder().decode(plain);
+  }
+
+  function isEncryptedBackup(text) {
+    try {
+      var obj = JSON.parse(text);
+      return !!(obj && obj.format === 'huixin-backup-mvp' && obj.encrypted === true);
+    } catch (e) { return false; }
+  }
+
+  /* 导出面板：强制 AES-256 加密；环境不支持时降级导出明文 JSON 并提示 */
+  function openExportPanel() {
+    var panel = $('#exportPanel');
+    panel.innerHTML =
+      '<form id="ucExportForm" novalidate>' +
+        '<p class="muted small">' + (cryptoOK
+          ? '将导出 AES-256 加密备份（.enc），请设置密码：'
+          : '当前环境不支持加密，只能导出未加密 JSON（包含敏感信息，请妥善保管）。') + '</p>' +
+        (cryptoOK
+          ? '<label class="field"><span>设置密码（建议不少于 8 位）</span>' +
+            '<input type="password" id="ucEncPwd" autocomplete="new-password"></label>' +
+            '<label class="field"><span>确认密码</span>' +
+            '<input type="password" id="ucEncPwd2" autocomplete="new-password"></label>' +
+            '<p class="muted small" id="ucExportErr" style="color:#c0392b" hidden></p>'
+          : '') +
+        '<div class="btn-row">' +
+          '<button type="submit" class="btn-secondary">导出</button>' +
+          '<button type="button" class="btn-secondary" id="ucExportCancel">取消</button>' +
+        '</div>' +
+      '</form>';
+    panel.hidden = false;
+    $('#ucExportCancel').addEventListener('click', function () { panel.hidden = true; });
+    $('#ucExportForm').addEventListener('submit', async function (ev) {
+      ev.preventDefault();
+      var err = $('#ucExportErr');
+      if (err) err.hidden = true;
+      var payload = JSON.stringify({
+        app: 'hx-mvp', version: 1,
+        exportedAt: new Date().toISOString(),
+        settings: settings, entries: entries
+      }, null, 2);
+      if (!cryptoOK) {
+        downloadBackup(new Blob([payload], { type: 'application/json' }),
+          '蕙心日记备份_' + backupStamp() + '_MVP.json');
+        panel.hidden = true;
+        toast('已导出未加密 JSON（当前环境不支持加密），请妥善保管');
+        return;
       }
-    };
-    reader.readAsText(file);
+      var pwd = $('#ucEncPwd').value;
+      var pwd2 = $('#ucEncPwd2').value;
+      if (pwd !== pwd2) { showExportErr('两次输入的密码不一致'); return; }
+      /* 密码强度提示：少于 8 位或纯数字/纯字母仅提示、不强制阻止（再次点击「导出」即确认） */
+      var weakPwd = pwd.length < 8 || /^\d+$/.test(pwd) || /^[A-Za-z]+$/.test(pwd);
+      if (weakPwd && weakPwdAck !== pwd) {
+        weakPwdAck = pwd;
+        showExportErr('密码强度较弱：少于 8 位或为纯数字/纯字母，备份可能被轻易破解。确认使用请再次点击「导出」。');
+        return;
+      }
+      if (!weakPwd) weakPwdAck = null;
+      try {
+        var encText = await encryptBackupText(payload, pwd);
+        downloadBackup(new Blob([encText], { type: 'application/octet-stream' }),
+          '蕙心日记备份_' + backupStamp() + '_MVP.enc');
+        panel.hidden = true;
+        toast('已导出 AES-256 加密备份（.enc）');
+      } catch (ex) {
+        showExportErr('加密失败：' + ex.message);
+      }
+    });
+  }
+  function showExportErr(msg) {
+    var err = $('#ucExportErr');
+    if (err) { err.textContent = msg; err.hidden = false; }
+  }
+
+  /* 导入方式选择：合并（按日期去重、本地优先）或覆盖（按日期+时间精确匹配覆盖） */
+  function openImportPanel() {
+    var panel = $('#importPanel');
+    panel.innerHTML =
+      '<form id="ucImportModeForm" novalidate>' +
+        '<p class="muted small">请选择导入方式：</p>' +
+        '<label style="display:block;font-weight:400;margin:4px 0">' +
+          '<input type="radio" name="ucImpMode" value="merge" checked> ' +
+          '合并（推荐）：按日期去重、本机记录优先，仅追加备份中本机没有的日期</label>' +
+        '<label style="display:block;font-weight:400;margin:4px 0">' +
+          '<input type="radio" name="ucImpMode" value="overwrite"> ' +
+          '覆盖：日期+时间精确匹配的记录以备份为准覆盖，其余追加；本机未匹配记录全部保留</label>' +
+        '<p class="muted small">支持 .enc 加密备份或 .json 明文备份</p>' +
+        '<div class="btn-row">' +
+          '<button type="submit" class="btn-secondary">选择文件…</button>' +
+          '<button type="button" class="btn-secondary" id="ucImportModeCancel">取消</button>' +
+        '</div>' +
+      '</form>';
+    panel.hidden = false;
+    $('#ucImportModeCancel').addEventListener('click', function () { panel.hidden = true; });
+    $('#ucImportModeForm').addEventListener('submit', function (ev) {
+      ev.preventDefault();
+      var sel = panel.querySelector('input[name="ucImpMode"]:checked');
+      importMode = sel ? sel.value : 'merge';
+      panel.hidden = true;
+      $('#importFile').click();
+    });
+  }
+
+  async function importData(file, mode) {
+    var text;
+    try { text = await file.text(); } catch (e) { toast('读取文件失败'); return; }
+    if (isEncryptedBackup(text)) { renderImportPwdPanel(text, mode); return; }
+    applyImportText(text, mode);
+  }
+
+  /* 检测到加密文件时：输入密码解密 */
+  function renderImportPwdPanel(encText, mode) {
+    var panel = $('#importPanel');
+    panel.innerHTML =
+      '<form id="ucImportPwdForm" novalidate>' +
+        '<p class="muted small">检测到加密备份文件，请输入导出时设置的密码：</p>' +
+        '<label class="field"><span>备份密码</span>' +
+          '<input type="password" id="ucImportPwd" autocomplete="off"></label>' +
+        '<p class="muted small" id="ucImportErr" style="color:#c0392b" hidden></p>' +
+        '<div class="btn-row">' +
+          '<button type="submit" class="btn-secondary">解密并导入</button>' +
+          '<button type="button" class="btn-secondary" id="ucImportCancel">取消</button>' +
+        '</div>' +
+      '</form>';
+    panel.hidden = false;
+    $('#ucImportCancel').addEventListener('click', function () { panel.hidden = true; });
+    $('#ucImportPwdForm').addEventListener('submit', async function (ev) {
+      ev.preventDefault();
+      var err = $('#ucImportErr');
+      err.hidden = true;
+      try {
+        var plain = await decryptBackupText(encText, $('#ucImportPwd').value);
+        applyImportText(plain, mode);
+      } catch (e) {
+        err.textContent = '密码错误或文件已损坏';
+        err.hidden = false;
+      }
+    });
+  }
+
+  /* 记录唯一键：日期+时间戳（覆盖模式精确匹配用） */
+  function entryKey(x) {
+    return 'D' + String((x && x.date) || '') + 'T' + String((x && x.createdAt) || '');
+  }
+
+  /* 应用导入：merge 按日期去重、本地优先；overwrite 按日期+时间戳覆盖，其余追加、不删除未匹配 */
+  function applyImportText(plainText, mode) {
+    var data;
+    try { data = JSON.parse(plainText); } catch (e) { toast('备份文件格式不正确'); return; }
+    if (!data || data.app !== 'hx-mvp' || !Array.isArray(data.entries)) {
+      toast('文件格式不正确'); return;
+    }
+    var added = 0, overwritten = 0;
+    if (mode === 'overwrite') {
+      var idxByKey = {};
+      entries.forEach(function (x, i) {
+        var k = entryKey(x);
+        if (!(k in idxByKey)) idxByKey[k] = i;
+      });
+      data.entries.forEach(function (x) {
+        var k = entryKey(x);
+        if (k in idxByKey) { entries[idxByKey[k]] = x; overwritten++; }
+        else { entries.push(x); added++; }
+      });
+      settings = data.settings || settings;
+    } else {
+      var dates = {};
+      entries.forEach(function (x) { if (x && x.date) dates[x.date] = true; });
+      data.entries.forEach(function (x) {
+        if (x && x.date && dates[x.date]) return; /* 本地优先：该日期本机已有，跳过 */
+        if (x && x.date) dates[x.date] = true;
+        entries.push(x); added++;
+      });
+      if (!settings || !settings.onboarded) settings = data.settings || settings;
+    }
+    saveSettings(); saveEntries();
+    $('#importPanel').hidden = true;
+    toast(mode === 'overwrite'
+      ? '导入完成：覆盖 ' + overwritten + ' 条、新增 ' + added + ' 条（本机其余记录保留）'
+      : '导入完成：新增 ' + added + ' 条（相同日期已保留本机记录）');
+    renderToday();
   }
 
   function clearAll() {
@@ -701,7 +859,7 @@
     localStorage.removeItem(K_ENTRIES);
     localStorage.removeItem(K_CUSTOM);
     settings = null; entries = [];
-    customTags = { body: [] };
+    customTags = { mood: [], body: [] };
     listShown = LIST_PAGE;
     $('#noteInput').value = '';
     toast('本地数据已清除');
@@ -744,17 +902,21 @@
       searchTimer = setTimeout(function () { kbQuery = v; renderKnowledge(); }, 180);
     });
 
-    /* 自定义身体感受输入 */
-    $('#bodyCustomAdd').addEventListener('click', function () { addCustomTag(); });
+    /* 自定义标签输入 */
+    $('#moodCustomAdd').addEventListener('click', function () { addCustomTag('mood'); });
+    $('#moodCustomInput').addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') { e.preventDefault(); addCustomTag('mood'); }
+    });
+    $('#bodyCustomAdd').addEventListener('click', function () { addCustomTag('body'); });
     $('#bodyCustomInput').addEventListener('keydown', function (e) {
-      if (e.key === 'Enter') { e.preventDefault(); addCustomTag(); }
+      if (e.key === 'Enter') { e.preventDefault(); addCustomTag('body'); }
     });
 
     $('#setSave').addEventListener('click', saveSettingsForm);
-    $('#exportBtn').addEventListener('click', exportData);
-    $('#importBtn').addEventListener('click', function () { $('#importFile').click(); });
+    $('#exportBtn').addEventListener('click', openExportPanel);
+    $('#importBtn').addEventListener('click', openImportPanel);
     $('#importFile').addEventListener('change', function () {
-      if (this.files[0]) importData(this.files[0]);
+      if (this.files[0]) importData(this.files[0], importMode);
       this.value = '';
     });
     $('#clearBtn').addEventListener('click', clearAll);
@@ -763,20 +925,6 @@
     $('#loadMoreBtn').addEventListener('click', function () {
       listShown += LIST_PAGE;
       renderRecordList();
-    });
-
-    /* 日历：翻月 + 格子点击详情 */
-    $('#calPrev').addEventListener('click', function () { changeMonth(-1); });
-    $('#calNext').addEventListener('click', function () { changeMonth(1); });
-    $('#calGrid').addEventListener('click', function (e) {
-      var cell = e.target.closest('.cal-cell[data-date]');
-      if (!cell) return;
-      var date = cell.getAttribute('data-date');
-      if (date > todayIso() && !findEntry(date)) {
-        toast('这一天还没到，先记录今天吧');
-        return;
-      }
-      openRecordSheet(date);
     });
   }
 

@@ -609,8 +609,12 @@
         return { ok: true };
       },
       async users() {
+        // 与远程 /api/admin/users 字段对齐：本地无数字 id，用 uuid 充当；
+        // isGuest(驼峰) 统一映射为 is_guest，避免管理视图漏掉游客
         return LS.get(USERS_KEY, []).map((u) => ({
-          id: u.name, name: u.name, email: u.email || null, role: u.role,
+          id: u.uuid, uuid: u.uuid, name: u.name,
+          email: u.email || null, role: u.role,
+          is_guest: u.isGuest === true,
           created_at: u.createdAt, assess_count: LS.get('hx_history', []).length
         }));
       },
@@ -1224,11 +1228,11 @@
       await doLogout();
     });
     $('#ucExportBtn', body).addEventListener('click', () => openExportPanel(body));
-    $('#ucImportBtn', body).addEventListener('click', () => $('#ucImportFile', body).click());
+    $('#ucImportBtn', body).addEventListener('click', () => openImportPanel(body));
     $('#ucImportFile', body).addEventListener('change', (ev) => {
       const f = ev.target.files && ev.target.files[0];
       ev.target.value = '';
-      if (f) handleImportFile(f, body);
+      if (f) handleImportFile(f, body, importMode);
     });
     $('#ucEditName', body).addEventListener('click', () => renderNameEditor(body));
 
@@ -1373,6 +1377,8 @@
   ];
   const PBKDF2_ITERATIONS = 210000;
   const cryptoOK = !!(window.crypto && crypto.subtle && window.isSecureContext !== false);
+  let weakPwdAck = null;   /* 已确认放行的弱密码（再次点击导出即确认） */
+  let importMode = 'merge'; /* 导入方式：merge 合并（按日期去重、本地优先）| overwrite 覆盖 */
 
   function buildBackupPayload() {
     const entries = {};
@@ -1475,7 +1481,7 @@
         '</label>' +
         (cryptoOK ? '' : '<p class="muted">当前环境不支持加密，仅可导出普通 JSON。</p>') +
         '<div id="ucEncPwdRow">' +
-          '<input type="password" id="ucEncPwd" placeholder="设置密码（至少 4 位）" autocomplete="new-password">' +
+          '<input type="password" id="ucEncPwd" placeholder="设置密码（建议不少于 8 位）" autocomplete="new-password">' +
           '<input type="password" id="ucEncPwd2" placeholder="确认密码" autocomplete="new-password">' +
         '</div>' +
         '<label class="uc-radio">' +
@@ -1511,21 +1517,30 @@
       const plain = JSON.stringify(buildBackupPayload(), null, 2);
       if (!enc) {
         downloadBlob(new Blob([plain], { type: 'application/json' }),
-          'huixin-backup-' + backupStamp() + '.json');
+          '蕙心日记备份_' + backupStamp() + '.json');
         panel.hidden = true;
         toast('已导出 JSON 备份文件，未加密文件包含敏感信息，请妥善保管');
         return;
       }
       const pwd = $('#ucEncPwd', panel).value;
       const pwd2 = $('#ucEncPwd2', panel).value;
-      if (pwd.length < 4) { err.textContent = '密码至少 4 位'; err.hidden = false; return; }
       if (pwd !== pwd2) { err.textContent = '两次输入的密码不一致'; err.hidden = false; return; }
+      /* 密码强度提示：少于 8 位或纯数字/纯字母仅提示、不强制阻止（重复点击「导出」即确认放行） */
+      const weakPwd = pwd.length < 8 || /^\d+$/.test(pwd) || /^[A-Za-z]+$/.test(pwd);
+      if (weakPwd && weakPwdAck !== pwd) {
+        weakPwdAck = pwd;
+        err.textContent = '密码强度较弱：少于 8 位或为纯数字/纯字母，备份可能被轻易破解。' +
+          '确认使用当前密码请再次点击「导出」；返回修改密码则提示自动失效。';
+        err.hidden = false;
+        return;
+      }
+      if (!weakPwd) weakPwdAck = null;
       const btn = panel.querySelector('button[type="submit"]');
       btn.disabled = true;
       try {
         const encText = await encryptBackupText(plain, pwd);
         downloadBlob(new Blob([encText], { type: 'application/octet-stream' }),
-          'huixin-backup-' + backupStamp() + '.enc');
+          '蕙心日记备份_' + backupStamp() + '.enc');
         panel.hidden = true;
         toast('已导出 AES-256 加密备份文件（.enc）');
       } catch (ex) {
@@ -1536,50 +1551,118 @@
     });
   }
 
-  /* 导入：合并本地数据，重复记录自动跳过，返回新增条数 */
-  function mergeBackup(payload) {
+  /* 导入方式选择：合并（按日期去重、本地优先）或覆盖（按日期+时间精确匹配覆盖） */
+  function openImportPanel(body) {
+    const panel = $('#ucImportPanel', body);
+    $('#ucExportPanel', body).hidden = true;
+    panel.innerHTML =
+      '<form class="uc-form" id="ucImportModeForm" novalidate>' +
+        '<p style="margin:0"><b>请选择导入方式</b></p>' +
+        '<label class="uc-radio">' +
+          '<input type="radio" name="ucImpMode" value="merge" checked> ' +
+          '合并（推荐）：按日期去重、本机记录优先，仅追加备份中本机没有的日期' +
+        '</label>' +
+        '<label class="uc-radio">' +
+          '<input type="radio" name="ucImpMode" value="overwrite"> ' +
+          '覆盖：日期+时间精确匹配的记录以备份为准覆盖，其余追加；本机未匹配记录全部保留' +
+        '</label>' +
+        '<p class="muted">支持 .json 明文备份或 .enc 加密备份文件</p>' +
+        '<div class="uc-form-btns">' +
+          '<button type="submit" class="btn btn-primary btn-sm">选择文件…</button>' +
+          '<button type="button" class="btn btn-ghost btn-sm" id="ucImportModeCancel">取消</button>' +
+        '</div>' +
+      '</form>';
+    panel.hidden = false;
+    $('#ucImportModeCancel', panel).addEventListener('click', () => { panel.hidden = true; });
+    $('#ucImportModeForm', panel).addEventListener('submit', (ev) => {
+      ev.preventDefault();
+      const sel = panel.querySelector('input[name="ucImpMode"]:checked');
+      importMode = sel ? sel.value : 'merge';
+      panel.hidden = true;
+      $('#ucImportFile', body).click();
+    });
+  }
+
+  /* 记录日期键：自评取 at，其余取 date（合并模式按日期去重用） */
+  function backupEntryDate(kind, x) {
+    if (kind === 'assessments') return String((x && x.at) || '').slice(0, 10);
+    return String((x && x.date) || '');
+  }
+
+  /* 记录唯一键：日期+时间戳（覆盖模式精确匹配用）；无时间戳时退化为日期 */
+  function backupEntryKey(kind, x) {
+    if (kind === 'assessments') return 'A' + String((x && x.at) || '');
+    return 'D' + String((x && x.date) || '') + 'T' + String((x && x.createdAt) || '');
+  }
+
+  /* 导入合并/覆盖，返回 {added, overwritten}。
+     merge：按日期去重、本地优先——本机已有该日期记录则跳过，新日期追加；
+     overwrite：按日期+时间戳精确匹配覆盖对应条，其余追加，不删除本机未匹配记录。 */
+  function mergeBackup(payload, mode) {
     const entries = payload && payload.entries;
     if (!entries || typeof entries !== 'object') throw new Error('备份文件格式不正确');
-    let added = 0;
+    let added = 0, overwritten = 0;
     BACKUP_KEYS.forEach(([k, lsKey]) => {
       const incoming = Array.isArray(entries[k]) ? entries[k] : [];
       if (!incoming.length) return;
       const cur = LS.get(lsKey, []);
-      const seen = new Set(cur.map((x) => JSON.stringify(x)));
-      incoming.forEach((x) => {
-        const s = JSON.stringify(x);
-        if (!seen.has(s)) { cur.push(x); seen.add(s); added++; }
-      });
+      if (mode === 'overwrite') {
+        const idxByKey = {};
+        cur.forEach((x, i) => {
+          const key = backupEntryKey(k, x);
+          if (!(key in idxByKey)) idxByKey[key] = i;
+        });
+        incoming.forEach((x) => {
+          const key = backupEntryKey(k, x);
+          if (key in idxByKey) { cur[idxByKey[key]] = x; overwritten++; }
+          else { cur.push(x); added++; }
+        });
+      } else {
+        const dates = {};
+        const seenRaw = new Set(cur.map((x) => JSON.stringify(x)));
+        cur.forEach((x) => { const d = backupEntryDate(k, x); if (d) dates[d] = true; });
+        incoming.forEach((x) => {
+          const d = backupEntryDate(k, x);
+          if (d && dates[d]) return;             /* 本地优先：该日期本机已有，整条跳过 */
+          const raw = JSON.stringify(x);
+          if (!d && seenRaw.has(raw)) return;    /* 无日期的异常记录按整条去重兜底 */
+          if (d) dates[d] = true;
+          seenRaw.add(raw);
+          cur.push(x); added++;
+        });
+      }
       LS.set(lsKey, cur);
     });
-    return added;
+    return { added: added, overwritten: overwritten };
   }
 
-  async function handleImportFile(file, body) {
+  async function handleImportFile(file, body, mode) {
     let text;
     try { text = await file.text(); } catch (e) { toast('读取文件失败'); return; }
     if (isEncryptedBackup(text)) {
-      renderImportPwdPanel(body, text);
+      renderImportPwdPanel(body, text, mode);
       return;
     }
-    applyImportText(body, text);
+    applyImportText(body, text, mode);
   }
 
-  function applyImportText(body, plainText) {
+  function applyImportText(body, plainText, mode) {
     let payload;
     try { payload = JSON.parse(plainText); } catch (e) { toast('备份文件格式不正确'); return; }
     try {
-      const added = mergeBackup(payload);
+      const r = mergeBackup(payload, mode === 'overwrite' ? 'overwrite' : 'merge');
       const panel = $('#ucImportPanel', body);
       if (panel) panel.hidden = true;
-      toast('导入完成，新增 ' + added + ' 条记录（重复记录已自动跳过）');
+      toast(mode === 'overwrite'
+        ? '导入完成：覆盖 ' + r.overwritten + ' 条、新增 ' + r.added + ' 条（本机其余记录保留）'
+        : '导入完成：新增 ' + r.added + ' 条（相同日期已保留本机记录）');
     } catch (e) {
       toast(e.message);
     }
   }
 
   /* 检测到加密文件时：输入密码解密 */
-  function renderImportPwdPanel(body, encText) {
+  function renderImportPwdPanel(body, encText, mode) {
     const panel = $('#ucImportPanel', body);
     $('#ucExportPanel', body).hidden = true;
     panel.innerHTML =
@@ -1602,7 +1685,7 @@
       btn.disabled = true;
       try {
         const plain = await decryptBackupText(encText, $('#ucImportPwd', panel).value);
-        applyImportText(body, plain);
+        applyImportText(body, plain, mode);
       } catch (e) {
         err.textContent = '密码错误或文件已损坏';
         err.hidden = false;
